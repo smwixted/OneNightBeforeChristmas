@@ -1,0 +1,1531 @@
+<!DOCTYPE html>
+<html lang="en-US">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>One Night Before Christmas</title>
+<!-- Home-screen / install support -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0b1e2d">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="ONBC">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<style>
+  @font-face{ font-family:"GingerbreadFont"; src:url("Fonts/GingerbreadHouse.ttf"); }
+  @font-face{ font-family:"NitemareFont"; src:url("Fonts/Nitemare.ttf"); }
+  :root{
+    --green:darkgreen; --lime:limegreen; --frost:whitesmoke; --pink:rgba(255,163,163,1);
+    --gold:#e9c46a; --shadow:0 8px 30px rgba(0,0,0,.45);
+    --textshadow:-1px -1px 0px rgba(0,176,0,0.3), 1px 1px 0px rgba(0,0,0,0.8);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;min-height:100%}
+  body{
+    font-family:"GingerbreadFont",cursive;
+    font-weight:normal;
+    letter-spacing:2px;
+    color:var(--frost);
+    background:url("Background.jpg") repeat;
+    background-size:auto;
+  }
+  .snow{position:fixed;inset:0;pointer-events:none;z-index:1;overflow:hidden}
+  .snow i{position:absolute;top:-10px;color:#fff;opacity:.8;animation:fall linear infinite}
+  @keyframes fall{to{transform:translateY(105vh) rotate(360deg)}}
+
+  header{position:relative;z-index:2;text-align:center;padding:18px 16px 4px}
+  #titleImg{max-width:min(90%,820px);height:auto;filter:drop-shadow(0 4px 10px rgba(0,0,0,.5))}
+  @media(max-width:600px){
+    header{margin-top:46px;padding:8px 4px 4px}
+    #titleImg{max-width:100%}
+  }
+  header h1{font-family:"GingerbreadFont",cursive;color:var(--green);font-size:clamp(34px,8vw,90px);
+    margin:0;text-shadow:var(--textshadow);line-height:.9;display:none;letter-spacing:4px}
+  header h1.fallback{display:block}
+
+  .bar{position:relative;z-index:3;display:flex;gap:14px;justify-content:center;
+    flex-wrap:wrap;align-items:center;padding:12px}
+  .pill{font-family:"GingerbreadFont",cursive;font-weight:normal;letter-spacing:3px;cursor:pointer;border:none;
+    background:var(--pink);color:var(--green);padding:10px 22px;border-radius:8px;
+    font-size:26px;text-shadow:var(--textshadow);opacity:.85;transition:.15s}
+  .pill:hover{opacity:1}
+  .count{font-size:32px;color:var(--green);text-shadow:var(--textshadow);letter-spacing:3px;
+    background:var(--pink);padding:8px 20px;border-radius:8px;opacity:.9}
+  #playBtn{background:linear-gradient(to bottom,rgba(255,255,255,.0) 0%,rgba(255,255,255,.9) 120%);
+    color:var(--green);font-size:34px;padding:8px 30px;border-radius:10px}
+  #playBtn:disabled{opacity:.35;cursor:not-allowed}
+  #playBtn:hover:not(:disabled){color:var(--lime)}
+  /* Sticky bottom Play dock — fades in from the bottom when characters are selected. */
+  #playDock{position:fixed;left:0;right:0;bottom:0;z-index:30;
+    display:flex;justify-content:center;align-items:flex-end;
+    padding:14px 12px 18px;pointer-events:none;
+    background:linear-gradient(to top,rgba(255,255,255,.92) 0%,rgba(255,255,255,.72) 55%,rgba(255,255,255,0) 100%);
+    transform:translateY(110%);transition:transform .28s ease;opacity:0}
+  #playDock.show{transform:translateY(0);opacity:1}
+  #playDock #playBtn{pointer-events:auto;font-size:40px;padding:6px 30px;
+    background:transparent;box-shadow:none;border-radius:0;opacity:1;
+    text-shadow:0 2px 6px rgba(0,0,0,.35)}
+  #playDock #playBtn:hover:not(:disabled){color:var(--lime);background:transparent}
+  /* leave room so the grid's last row isn't hidden behind the dock */
+  .grid{padding-bottom:96px}
+
+  .grid{position:relative;z-index:2;display:grid;
+    grid-template-columns:repeat(auto-fill,minmax(130px,1fr));
+    gap:14px;max-width:1150px;margin:8px auto 60px;padding:0 16px}
+  .role{position:relative;border-radius:12px;overflow:hidden;cursor:pointer;
+    border:3px solid transparent;background:#000;box-shadow:var(--shadow);
+    transition:.12s;aspect-ratio:3/4;
+    touch-action:manipulation;-webkit-touch-callout:none;
+    -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+  .role img{width:100%;height:100%;object-fit:cover;opacity:.45;transition:.18s;pointer-events:none}
+  .role video.cardvid{width:100%;height:100%;object-fit:cover;opacity:1;display:block}
+  .role .nm{position:absolute;bottom:0;left:0;right:0;padding:6px 6px 8px;
+    font-family:"GingerbreadFont",cursive;font-size:18px;letter-spacing:1.5px;text-align:center;color:var(--frost);
+    text-shadow:var(--textshadow);background:linear-gradient(0deg,rgba(0,0,0,.85),transparent)}
+  .role:hover img{opacity:.8}
+  .role.on{border-color:var(--green)}
+  .role.on img{opacity:1}
+  /* Description overlay — Nitemare font over a dark translucent wash so the
+     character art still shows through. Visible on hover / long-press.
+     Font scales down and text can scroll if a description is very long
+     (e.g. Zero) so it's always fully readable. */
+  .role{container-type:inline-size}
+  .role .roledesc{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+    text-align:center;padding:6px;box-sizing:border-box;overflow:auto;
+    font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;
+    font-size:clamp(11px,8.5cqi,17px);line-height:1.22;color:#fff;
+    background:rgba(6,16,24,.74);text-shadow:0 1px 3px #000;
+    opacity:0;transition:opacity .15s;pointer-events:none}
+  .role.showdesc .roledesc{opacity:1}
+  .role.showdesc img{opacity:.9}
+  .role.on::after{content:"✓";position:absolute;top:6px;right:9px;color:var(--lime);
+    font-size:30px;font-weight:bold;text-shadow:0 0 4px #000,1px 1px 2px #000;z-index:2}
+  .num{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif}
+
+  /* night stage */
+  .stage{position:fixed;inset:0;z-index:50;display:none;flex-direction:column;
+    align-items:center;justify-content:center;overflow:hidden;
+    background:url("Blue.jpg") repeat;padding:2vh 2vw}
+  .stage.show{display:flex}
+  .stage > *:not(.snow){position:relative;z-index:2}
+  #timerNum{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-weight:normal;
+    color:papayawhip;font-size:clamp(48px,13vw,190px);
+    text-shadow:var(--textshadow);min-height:0;line-height:1;margin:0;letter-spacing:4px}
+  .portraits{display:flex;gap:24px;align-items:center;justify-content:center;margin:1vh 0;position:relative}
+  .portraits:empty{display:none}
+  .centerWrap{position:relative;display:inline-flex;align-items:center;justify-content:center}
+  .portraits .char{max-height:42vh;max-width:42vw;border-radius:15px;
+    box-shadow:5px 5px 5px rgba(0,0,0,.5);display:none}
+  .portraits .char.show{display:block;animation:pop .35s ease}
+  .portraits video.charvid{object-fit:cover}
+  @keyframes pop{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:scale(1)}}
+  /* Single-card token: sits on the TOP-LEFT corner of the card, partially overlapping. */
+  #token{position:absolute;top:0;left:0;transform:translate(-45%,-45%);
+    max-height:14vh;max-width:16vw;display:none;
+    filter:drop-shadow(0 3px 8px rgba(0,0,0,.6));z-index:3}
+  #token.show{display:block;animation:pop .35s ease}
+  /* Two-card token: straddles the gap between cards (left:50%) and rides at the top
+     edge like the single-card tokens. centerWrap is vertically centered with the
+     cards, so the cards' top is roughly -20vh from its middle. */
+  #token.pair{top:auto;bottom:calc(50% + 9vh);left:50%;transform:translate(-50%,0);max-height:13vh}
+  #tokenFallback{position:absolute;top:0;left:0;transform:translate(-30%,-40%);display:none;padding:6px 12px;border-radius:10px;
+    background:rgba(255,255,255,.92);color:var(--green);font-family:"GingerbreadFont",cursive;
+    letter-spacing:2px;font-size:18px;box-shadow:var(--shadow);z-index:3}
+  #tokenFallback.show{display:block}
+  #eyes{max-height:34vh;display:none;margin-top:4vh}
+  #eyes.show{display:block}
+  #voteImg{max-width:min(48%,380px);display:none;margin:8vh 0 0;cursor:pointer;transition:transform .15s}
+  #voteImg.show{display:block}
+  #voteImg:hover{transform:scale(1.04)}
+  @media(max-width:600px){ #voteImg{max-width:90%;width:90%;margin-top:6vh} }
+  #voteHint{font-family:"GingerbreadFont",cursive;letter-spacing:1.5px;color:papayawhip;
+    font-size:clamp(20px,5.5vw,26px);text-align:center;text-shadow:var(--textshadow);
+    margin-top:6px;display:none;padding:0 16px}
+  #voteHint.show{display:block}
+  .subtitle{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;letter-spacing:1px;font-size:clamp(22px,3.6vw,42px);
+    text-align:center;max-width:90vw;margin-top:20px;min-height:1.6em;color:#fff;
+    text-shadow:var(--textshadow);line-height:1.35}
+  .subtitle2{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;letter-spacing:.5px;font-size:clamp(18px,2.9vw,32px);
+    text-align:center;max-width:90vw;margin-top:8px;min-height:0;color:#ffe;
+    text-shadow:var(--textshadow);line-height:1.3}
+  .remaining{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;letter-spacing:1px;color:papayawhip;font-size:clamp(20px,3.2vw,36px);
+    text-align:center;text-shadow:var(--textshadow);min-height:1.4em}
+  /* candy-cane growing pause bar */
+  .pausebar{height:18px;width:60vw;max-width:520px;margin-top:16px;border-radius:9px;
+    background:rgba(255,255,255,.15);overflow:hidden;visibility:hidden;border:1px solid rgba(255,255,255,.3)}
+  .pausebar i{display:block;height:100%;width:0;border-radius:9px;
+    background:repeating-linear-gradient(45deg,#d2323a 0 14px,#fff 14px 28px)}
+  @keyframes grow{from{width:0}to{width:100%}}
+  .stage .controls{position:fixed;bottom:18px;display:flex;gap:30px}
+  .stage .controls img{height:64px;opacity:.55;cursor:pointer;transition:.15s}
+  .stage .controls img:hover{opacity:1}
+
+  dialog{border:2px solid var(--green);border-radius:16px;background:#0f2c3d;color:var(--frost);
+    box-shadow:var(--shadow);padding:24px;max-width:660px;width:92vw;font-family:"GingerbreadFont",cursive;
+    font-weight:normal;letter-spacing:2px}
+  dialog h2{margin-top:0;color:var(--frost);text-align:center;font-size:34px;font-weight:normal;
+    text-shadow:1px 1px 2px rgba(0,0,0,0.7)}
+  .setsec{color:var(--frost);font-weight:normal;border-bottom:1px solid rgba(255,255,255,.25);padding-bottom:4px;
+    margin:20px 0 12px;font-size:24px;text-shadow:1px 1px 2px rgba(0,0,0,0.7)}
+  .tilegrid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+  .tile{border:3px solid transparent;border-radius:10px;overflow:hidden;cursor:pointer;background:#0a2230;transition:.12s}
+  .tile img{width:100%;display:block;aspect-ratio:1/1;object-fit:cover;opacity:.55;transition:.18s;box-shadow:5px 5px 5px rgba(0,0,0,.5)}
+  .tile:hover img{opacity:.85}
+  .tile.on{border-color:var(--green)}
+  .tile.on img{opacity:1}
+  @media(max-width:480px){.tilegrid{grid-template-columns:repeat(2,1fr)}}
+  dialog button{font-family:"GingerbreadFont",cursive;background:var(--pink);color:var(--green);
+    border:none;border-radius:8px;padding:6px 16px;font-size:20px;cursor:pointer;text-shadow:var(--textshadow)}
+  /* Settings: X pinned to the dialog corner; the inner wrapper scrolls.
+     position:fixed + centered so it always opens centered in the viewport,
+     even when the page is scrolled to the bottom. */
+  #settings{padding:0;overflow:hidden;max-height:90vh;position:fixed;
+    top:50%;left:50%;transform:translate(-50%,-50%);margin:0}
+  #settings .dlgScroll{overflow-y:auto;max-height:90vh;padding:64px 24px 24px}
+  dialog .dlgX{position:absolute;top:14px;left:14px;z-index:10;width:46px;height:46px;padding:0;
+    font-size:22px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.5);
+    display:flex;align-items:center;justify-content:center;line-height:1}
+  dialog .dlgReset{position:absolute;top:14px;right:14px;z-index:10;width:46px;height:46px;padding:0;
+    font-size:26px;border-radius:10px;box-shadow:0 2px 8px rgba(0,0,0,.5);
+    display:flex;align-items:center;justify-content:center;line-height:1}
+  dialog::backdrop{background:rgba(0,10,20,.65)}
+  /* Themed name + confirm prompts: white card with a candy-cane border. */
+  #namePrompt,#confirmPrompt{background:#fff;color:#0f2c3d;border-radius:16px;padding:26px 24px;max-width:380px;
+    border:6px solid transparent;
+    border-image:repeating-linear-gradient(45deg,#c0392b 0,#c0392b 12px,#fff 12px,#fff 24px) 6}
+  #namePrompt button,#confirmPrompt button{font-family:"GingerbreadFont",cursive;background:#c0392b;color:#fff;border:none;
+    border-radius:8px;padding:8px 22px;font-size:18px;cursor:pointer}
+  #namePrompt button.alt,#confirmPrompt button.alt{background:#cfd8dc;color:#0f2c3d}
+  /* Game Manual button: fixed top-left corner */
+  /* Hamburger menu button (top-left) */
+  #menuBtn{position:fixed;top:12px;left:12px;z-index:40;width:46px;height:42px;
+    display:flex;flex-direction:column;justify-content:center;gap:6px;
+    background:var(--pink);border:none;border-radius:10px;cursor:pointer;padding:0 10px;
+    box-shadow:var(--shadow);opacity:.9;transition:.15s}
+  #menuBtn:hover{opacity:1}
+  #menuBtn span{display:block;height:4px;border-radius:3px;background:var(--green)}
+  /* Joined-players badge, frozen next to the menu button while hosting. */
+  #joinedBadge{position:fixed;top:12px;left:68px;z-index:40;display:none;align-items:center;
+    height:42px;padding:0 12px;border-radius:10px;background:var(--pink);color:var(--green);
+    font-family:"GingerbreadFont",cursive;font-size:18px;box-shadow:var(--shadow);opacity:.92}
+  #joinedBadge.show{display:flex}
+  #roomCodeBadge{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:16px;
+    letter-spacing:2px;margin-left:10px;padding-left:10px;border-left:2px solid rgba(0,80,0,.35)}
+  #roomCodeBadge:empty{display:none}
+  /* Clear-all icon button (top-right, mirrors the hamburger) */
+  #clearBtn{position:fixed;top:12px;right:12px;z-index:40;width:46px;height:42px;
+    display:flex;align-items:center;justify-content:center;font-size:22px;
+    background:var(--pink);border:none;border-radius:10px;cursor:pointer;
+    box-shadow:var(--shadow);opacity:.9;transition:.15s;line-height:1}
+  #clearBtn:hover{opacity:1}
+  /* dimming overlay behind the panel */
+  #menuOverlay{position:fixed;inset:0;background:rgba(0,10,20,.55);z-index:45;
+    opacity:0;visibility:hidden;transition:.25s}
+  #menuOverlay.show{opacity:1;visibility:visible}
+  /* slide-out panel from the left */
+  #menuPanel{position:fixed;top:0;left:0;bottom:0;width:min(78vw,300px);z-index:46;
+    background:url("Blue.jpg") repeat;border-right:3px solid #fff;
+    box-shadow:6px 0 24px rgba(0,0,0,.5);padding:22px 18px;overflow-y:auto;-webkit-overflow-scrolling:touch;
+    transform:translateX(-105%);transition:transform .28s ease;display:flex;flex-direction:column;gap:14px}
+  #menuPanel.show{transform:translateX(0)}
+  #menuClose{align-self:flex-end;background:var(--pink);color:var(--green);border:none;
+    border-radius:8px;width:38px;height:38px;font-size:20px;cursor:pointer;font-family:"GingerbreadFont",cursive}
+  .menuItem{font-family:"GingerbreadFont",cursive;background:var(--pink);color:var(--green);
+    border:none;border-radius:10px;padding:16px 18px;font-size:24px;cursor:pointer;
+    text-align:left;letter-spacing:2px;text-shadow:var(--textshadow);transition:.15s;opacity:.9}
+  .menuItem:hover{opacity:1;color:var(--lime)}
+  /* Game Manual pop-up: large, near full-screen */
+  #manual{width:94vw;height:92vh;max-width:1100px;padding:0;border:2px solid var(--green);
+    border-radius:14px;background:#0f2c3d;overflow:hidden}
+  #manual::backdrop{background:rgba(0,10,20,.75)}
+  .manualHead{display:flex;align-items:center;gap:14px;padding:10px 14px;background:#0c2434;
+    border-bottom:1px solid rgba(255,255,255,.15);flex-wrap:wrap}
+  .manualTitle{font-family:"GingerbreadFont",cursive;color:var(--frost);font-size:26px;letter-spacing:2px}
+  .manualHint{font-family:Arial,sans-serif;color:#9fc;font-size:13px;flex:1;min-width:80px}
+  #manualOpenTab{font-family:Arial,sans-serif;color:#9fc;font-size:13px;text-decoration:underline;white-space:nowrap}
+  #manualClose{font-family:"GingerbreadFont",cursive;background:var(--pink);color:var(--green);
+    border:none;border-radius:8px;padding:6px 14px;font-size:18px;cursor:pointer}
+  #manualFrame{display:block;width:100%;height:calc(92vh - 52px);border:none;background:#fff}
+  label{display:inline-block;margin:6px 4px}
+  .mpRow{display:flex;align-items:flex-start;gap:10px;margin:10px 0;line-height:1.35}
+  .mpRow input{margin-top:3px;flex:0 0 auto;width:18px;height:18px}
+  .mpRow span{flex:1}
+  .menuGap{height:22px;border-top:1px solid rgba(255,255,255,.18);margin-top:14px}
+  .hostCode{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:44px;font-weight:normal;letter-spacing:6px;color:#f3c969;text-align:center;margin:4px 0}
+  .hostCodeLabel{text-align:center;font-size:13px;color:var(--frost);margin-top:8px}
+  .hostCodeCount{text-align:center;font-size:13px;color:#9fd;margin-bottom:4px}
+</style>
+</head>
+<body>
+<div class="snow" id="snow"></div>
+
+<button id="menuBtn" aria-label="Menu">
+  <span></span><span></span><span></span>
+</button>
+<div id="joinedBadge" title="Players joined">👥 <span id="joinedCount">0</span><span id="roomCodeBadge"></span></div>
+
+<!-- Slide-out menu panel -->
+<div id="menuOverlay"></div>
+<nav id="menuPanel" aria-label="Main menu">
+  <button id="menuClose" aria-label="Close menu">✕</button>
+  <button id="menuSettings" class="menuItem">⚙️ Settings</button>
+  <button id="menuManual" class="menuItem">📖 Game Manual</button>
+  <button id="menuPrint" class="menuItem">🖨️ Print Characters</button>
+  <button id="menuInstall" class="menuItem">📲 Add to Home Screen</button>
+  <div class="menuGap"></div>
+  <button id="menuJoin" class="menuItem">🔗 Join a Game</button>
+  <button id="menuHost" class="menuItem">🎉 Host a Session</button>
+  <div id="hostCodeBox" style="display:none">
+    <div class="hostCodeLabel">Players join with code</div>
+    <div id="hostCode" class="hostCode">----</div>
+    <div id="hostCodeCount" class="hostCodeCount">Waiting for players…</div>
+  </div>
+</nav>
+
+<header>
+  <img id="titleImg" src="Title.png" alt="One Night Before Christmas"
+       onerror="this.style.display='none';document.getElementById('h1').classList.add('fallback')">
+  <h1 id="h1">One Night Before Christmas</h1>
+</header>
+
+<button id="clearBtn" aria-label="Clear all selections" title="Clear All">🗑️</button>
+
+<div class="grid" id="grid"></div>
+
+<!-- Sticky bottom Play bar (appears when characters are selected) -->
+<div id="playDock">
+  <button id="playBtn" class="pill" disabled>Play <span id="playCnt" class="num"></span></button>
+</div>
+
+<!-- Night stage -->
+<div class="stage" id="stage">
+  <div class="snow" id="snowStage" style="z-index:1"></div>
+  <p id="timerNum"></p>
+  <img id="eyes" src="Eyes.png" alt="">
+  <img id="wakeImg" src="Wake.png" alt="" style="max-height:34vh;display:none;margin-top:4vh">
+  <div class="portraits">
+    <img id="pLeft" class="char" alt="">
+    <video id="vLeft" class="char charvid" muted loop playsinline></video>
+    <div class="centerWrap">
+      <img id="pCenter" class="char" alt="">
+      <video id="vCenter" class="char charvid" muted loop playsinline></video>
+      <img id="token" alt="token">
+      <div id="tokenFallback"></div>
+    </div>
+    <img id="pRight" class="char" alt="">
+    <video id="vRight" class="char charvid" muted loop playsinline></video>
+  </div>
+  <img id="voteImg" src="VoteNow.png" alt="Vote Now">
+  <div id="voteHint">Tap when everyone is ready to vote</div>
+  <div class="subtitle" id="sub"></div>
+  <div class="subtitle2" id="sub2"></div>
+  <div class="remaining" id="rem"></div>
+  <div class="pausebar" id="pausebar"><i></i></div>
+  <div class="controls">
+    <img id="pauseBtn" src="Pause.png" alt="Pause/Play" title="Pause / Resume">
+    <img id="stopBtn" src="Stop.png" alt="Stop" title="End Night">
+  </div>
+  <audio id="narration"></audio>
+  <audio id="callout"></audio>
+  <audio id="music" loop></audio>
+</div>
+
+<!-- Settings -->
+<dialog id="settings">
+  <button id="settingsClose" class="dlgX" title="Close" type="button">✕</button>
+  <button id="settingsReset" class="dlgReset" title="Restore default settings" type="button">↺</button>
+  <div class="dlgScroll">
+  <h2>Settings</h2>
+  <h3 class="setsec">Background Music</h3>
+  <div class="tilegrid" id="musicTiles"></div>
+  <div style="text-align:center;margin:10px 0">
+    <button id="previewBtn" type="button">Preview Music</button>
+    <button id="testVoiceBtn" type="button">Test Mix</button>
+    <button id="previewStop" type="button">Stop</button>
+  </div>
+  <div style="text-align:center;margin:6px 0">
+    <label>Music</label>
+    <input type="range" id="vol" min="0" max="1" step="0.05" value="1" style="vertical-align:middle;width:160px">
+    <span id="volPct" class="num">100%</span>
+  </div>
+  <div style="text-align:center;margin:6px 0">
+    <label>Voice</label>
+    <input type="range" id="voiceVol" min="0" max="1" step="0.05" value="0.6" style="vertical-align:middle;width:160px">
+    <span id="voicePct" class="num">60%</span>
+  </div>
+  <h3 class="setsec">Minutes to Vote</h3>
+  <div class="tilegrid" id="voteTiles"></div>
+  <h3 class="setsec">Night Role Timer (seconds to act)</h3>
+  <div class="tilegrid" id="roleTiles"></div>
+  <h3 class="setsec">Hosted Session</h3>
+  <div id="mpToggles" style="text-align:left;max-width:420px;margin:0 auto;font-size:16px;font-family:'NitemareFont','Trebuchet MS',Arial,sans-serif">
+    <div class="mpRow" id="mpHostNameRow"><span style="flex:0 0 auto">Your name:</span> <input type="text" id="mpHostName" maxlength="16" placeholder="Host" style="flex:1;font-size:15px;padding:6px 8px;border-radius:8px;border:1px solid #cfe0ea"></div>
+    <label class="mpRow"><input type="checkbox" id="mpCheat"> <span><strong>Allow cheat sheet during voting</strong> — players (and you, if playing) can see the role list &amp; descriptions during the vote.</span></label>
+    <label class="mpRow"><input type="checkbox" id="mpHostPlayer"> <span><strong>This device is also a player</strong> — count this device as a player in the room (and show vote buttons here when mobile voting is on).</span></label>
+    <label class="mpRow"><input type="checkbox" id="mpEnabled"> <span><strong>Enable mobile voting</strong> — players tap to vote on their phones. Off = phones show the timer only and you vote out loud.</span></label>
+    <label class="mpRow"><input type="checkbox" id="mpShowVotes"> <span><strong>Show who voted for whom</strong> — reveal each player's vote in the results (off = totals only).</span></label>
+  </div>
+  <audio id="preview"></audio>
+  <audio id="testVoice"></audio>
+  </div>
+</dialog>
+
+<!-- Game Manual -->
+<dialog id="manual">
+  <div class="manualHead">
+    <span class="manualTitle">Game Manual</span>
+    <span class="manualHint">Use the viewer's search to find anything</span>
+    <a id="manualOpenTab" href="Manual.pdf" target="_blank" rel="noopener">Open in new tab ↗</a>
+    <button id="manualClose" type="button">✕ Close</button>
+  </div>
+  <embed id="manualFrame" type="application/pdf" src="" />
+</dialog>
+
+<dialog id="install">
+  <h2>Add to Home Screen</h2>
+  <div id="installBody" style="font-family:Arial,Helvetica,sans-serif;font-size:16px;line-height:1.5">
+    <!-- Platform-specific instructions injected by script -->
+  </div>
+  <div style="text-align:center;margin-top:18px">
+    <button id="installClose" type="button">✕ Close</button>
+  </div>
+</dialog>
+
+<dialog id="tokenReminder">
+  <h2>Don't forget your tokens!</h2>
+  <p style="text-align:center;font-size:17px;margin:0 0 14px">Grab these and place them in the center of the table:</p>
+  <div id="tokenReminderList" class="mpCheatGrid" style="display:flex;flex-wrap:wrap;gap:10px;justify-content:center"></div>
+  <div style="text-align:center;margin-top:20px">
+    <button id="tokenReadyBtn" type="button">🎁 Tokens Ready. Let's Play!</button>
+  </div>
+</dialog>
+
+<dialog id="namePrompt">
+  <div id="namePromptTitle" style="text-align:center;font-family:'NitemareFont','Trebuchet MS',Arial,sans-serif;font-size:22px;color:#0f2c3d;margin-bottom:14px">Enter your name</div>
+  <input id="namePromptInput" type="text" maxlength="16" placeholder="Your name"
+    style="font-family:'NitemareFont','Trebuchet MS',Arial,sans-serif;font-size:22px;padding:10px 12px;border-radius:10px;border:2px solid #c0392b;width:80%;max-width:300px;text-align:center;display:block;margin:0 auto">
+  <div style="text-align:center;margin-top:18px;display:flex;gap:10px;justify-content:center">
+    <button id="namePromptOk" type="button">OK</button>
+    <button id="namePromptCancel" type="button" class="alt">Cancel</button>
+  </div>
+</dialog>
+
+<dialog id="confirmPrompt">
+  <div id="confirmPromptText" style="text-align:center;font-family:'NitemareFont','Trebuchet MS',Arial,sans-serif;font-size:21px;color:#0f2c3d;line-height:1.35;margin-bottom:18px">Are you sure?</div>
+  <div style="text-align:center;display:flex;gap:10px;justify-content:center">
+    <button id="confirmPromptOk" type="button">Yes</button>
+    <button id="confirmPromptCancel" type="button" class="alt">Cancel</button>
+  </div>
+</dialog>
+
+<script type="module">
+import { ROSTER, TIMELINE, MUSIC, VOTE_TIMERS, ROLE_TIMERS } from "./roles.js?v=46";
+import { runNight } from "./night-engine.js?v=46";
+import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpConfigured,
+         startSession, endSession, getHostSession, broadcastRoles, openJoinPrompt, teardownHostVoteUI, renameHost }
+  from "./multiplayer-ui.js?v=72";
+import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
+
+// ---------- PLAYER JOIN MODE ----------
+// If this page was opened as ...?join=CODE, it's a player's phone, not the
+// game device. Launch the lightweight player client and stop — the rest of
+// the game script below never needs to run for a joined player.
+const __joinCode = joinCodeFromUrl();
+if (__joinCode) {
+  startPlayerClient(__joinCode);
+}
+
+// Build [{name, desc}] for the roles currently selected, for the cheat sheet.
+function rolesInPlayList(){
+  return [...selected].map(id => {
+    const r = ROSTER.find(x => x.id === id);
+    const file = r ? r.image.split("/").pop() : null;
+    const ref = file ? CHAR_REF[file] : null;
+    return { name: r ? r.name : id, desc: ref ? ref.desc : "", image: r ? r.image : null };
+  });
+}
+
+// Explicit per-role metadata for the cheat sheet. Keyed by role group-or-id.
+//   wake: true | false | function(keys) -> boolean   (keys = Set of selected group/ids)
+//   tokens: optional array of standalone token file-stems this role brings
+//   present: optional "all" | "gold"  (which Christmas Present tokens it brings)
+// Anything not listed defaults to waking with no tokens.
+const ROLE_META = {
+  // --- conditional wake rules ---
+  Zero:    { wake: k => k.has("Skell") },                 // wakes only if Jack Skellington in play
+  Misers:  { wake: k => k.has("Misers2pres") || k.has("Rudolph") }, // both misers OR rudolph (see note below)
+  Bernard: { wake: k => k.has("Santa") || k.has("Calvin") },
+  Scrooge: { wake: k => k.has("AnyGrinch") },             // any grinch-team member (see GRINCH_TEAM)
+  Warlock: { wake: k => k.has("AnyGrinch") },
+  // --- non-waking roles ---
+  Burger:  { wake: false },
+  Skell:   { wake: false },
+  Frost:   { wake: false },
+  ELFS:    { wake: false },
+  ASM:     { wake: false },
+  Elf:     { wake: false },
+  Tiny:    { wake: false },                               // both Tiny Tim variants are non-waking
+  // --- token-bringing roles ---
+  Cupid:   { wake: true, tokens: ["Mistletoe"] },
+  Frosty:  { wake: true, tokens: ["Magic Hat"] },
+  Hinkle:  { wake: true, tokens: ["Magic Hat"] },
+  Wise:    { wake: true, present: "all" },
+  Yukon:   { wake: true, present: "gold" },
+  // Roles that explicitly bring NO tokens (defaults already cover this, listed
+  // for clarity since they were called out): Hermey, Rudolph, Present.
+};
+
+// "Grinch team" = any role that counts as a Grinch for Scrooge/Warlock's wake
+// condition: the Grinches themselves plus Krampus, Bad Santa, and Burgermeister.
+const GRINCH_TEAM = new Set(["Grinch", "Krampus", "BadSanta", "Burger"]);
+
+// Build structured cheat-sheet data:
+//  - wakeOrder: selected waking roles, in ROSTER (home-screen) order, deduped by group
+//  - nonWaking: selected non-waking roles, in ROSTER order, deduped by group
+//  - standaloneTokens: Mistletoe / Magic Hat (whichever apply)
+//  - presentTokens: the Christmas Present Tokens that apply (all, or just Gold)
+function cheatData(){
+  // Build the set of selected keys, plus a few derived flags used by wake rules.
+  const keys = new Set();
+  let grinchTeamCount = 0, miserCount = 0;
+  ROSTER.forEach(r => {
+    if (!selected.has(r.id)) return;
+    const key = r.group || r.id;
+    keys.add(key);
+    if (GRINCH_TEAM.has(key)) grinchTeamCount++;
+    if (key === "Misers") miserCount++;
+  });
+  if (grinchTeamCount > 0) keys.add("AnyGrinch");
+  if (miserCount >= 2) keys.add("Misers2pres");   // both miser brothers present
+
+  const wakeOf = (key) => {
+    const meta = ROLE_META[key];
+    if (!meta || meta.wake === undefined) return true;       // default waking
+    if (typeof meta.wake === "function") return meta.wake(keys);
+    return meta.wake;
+  };
+
+  // Walk ROSTER (home-screen order). Both Tiny Tim variants are kept separately
+  // even though they share a group, because their artwork differs.
+  const seen = new Set();
+  const wakeOrder = [], nonWaking = [];
+  ROSTER.forEach(r => {
+    if (!selected.has(r.id)) return;
+    const key = r.group || r.id;
+    // Tiny Tim: keep both (Tiny, Tiny2) — dedup on the actual id, not the group.
+    const dedupKey = (key === "Tiny") ? r.id : key;
+    if (seen.has(dedupKey)) return;
+    seen.add(dedupKey);
+    const file = r.image.split("/").pop();
+    const ref = CHAR_REF[file];
+    const entry = { name: r.name, desc: ref ? ref.desc : "", image: r.image };
+    (wakeOf(key) ? wakeOrder : nonWaking).push(entry);
+  });
+
+  // ---- Tokens ----
+  // Standalone tokens (Mistletoe, Magic Hat), gathered from role metadata,
+  // in canonical order: Mistletoe first, then Magic Hat.
+  const wantStandalone = new Set();
+  let presentMode = null;   // null | "gold" | "all"
+  keys.forEach(key => {
+    const meta = ROLE_META[key];
+    if (!meta) return;
+    (meta.tokens || []).forEach(t => wantStandalone.add(t));
+    if (meta.present === "all") presentMode = "all";
+    else if (meta.present === "gold" && presentMode !== "all") presentMode = "gold";
+  });
+
+  const tokenByName = {};
+  TOKEN_REF.forEach(t => { tokenByName[t.file.replace(/\.png$/,"")] = t; });
+  const mkTok = (name) => {
+    const t = tokenByName[name]; if (!t) return null;
+    return { name, desc: t.desc, image: "Tokens/" + t.file };
+  };
+
+  const standaloneTokens = [];
+  ["Mistletoe","Magic Hat"].forEach(n => { if (wantStandalone.has(n)) { const x = mkTok(n); if (x) standaloneTokens.push(x); } });
+
+  // Christmas Present Tokens: all cpt tokens, or just Gold for Yukon-only.
+  let presentTokens = [];
+  if (presentMode === "all") {
+    presentTokens = TOKEN_REF.filter(t => t.cpt).map(t => ({ name: t.file.replace(/\.png$/,""), desc: t.desc, image: "Tokens/" + t.file }));
+  } else if (presentMode === "gold") {
+    const g = mkTok("Gold"); if (g) presentTokens = [g];
+  }
+
+  return { wakeOrder, nonWaking, standaloneTokens, presentTokens };
+}
+
+// ---------- click sounds ----------
+const clickOn  = new Audio("Audio/Buttons/click.wav");
+const clickOff = new Audio("Audio/Buttons/release.wav");
+const playSfx = a => { try { a.currentTime = 0; a.play(); } catch(e){} };
+
+// ---------- state ----------
+const selected = new Set();
+const settings = loadSettings();
+function loadSettings(){ try { return JSON.parse(localStorage.getItem("onbc")) || {}; } catch { return {}; } }
+function saveSettings(){ localStorage.setItem("onbc", JSON.stringify(settings)); }
+
+// Single source of truth for default settings (used at first load and by the
+// "Restore defaults" button in Settings).
+const DEFAULT_SETTINGS = {
+  roleTimer: 5000,
+  voteTimer: 180000,
+  music: MUSIC[1].file,
+  musicId: "Carol",
+  volume: 1.0,
+  voiceVolume: 0.6,
+  mpEnabled: false,
+  mpHostPlayer: true,
+  mpShowVotes: true,
+  mpCheat: true,
+  mpHostName: "",
+};
+function applyDefaults(target){
+  for (const k in DEFAULT_SETTINGS){
+    if (target[k] === undefined) target[k] = DEFAULT_SETTINGS[k];
+  }
+}
+applyDefaults(settings);
+
+// ---------- selection grid ----------
+const grid = document.getElementById("grid");
+ROSTER.forEach(role => {
+  const el = document.createElement("div");
+  el.className = "role"; el.dataset.id = role.id;
+  if (role.anim) el.dataset.anim = role.anim;
+  const file = role.image.split("/").pop();
+  const ref = CHAR_REF[file];
+  const desc = ref ? ref.desc : "";
+  el.innerHTML = `<img src="${role.image}" alt="${role.name}" loading="lazy">
+                  <span class="nm">${role.name}</span>
+                  <span class="roledesc">${desc}</span>`;
+  el.onclick = () => toggle(role.id, el);
+  attachDescGestures(el);
+  grid.appendChild(el);
+});
+
+// Show a role's description on hover (desktop) or press-and-hold (mobile),
+// while a normal tap still selects. On touch, a long-press shows the
+// description and suppresses the select that would otherwise fire on release.
+function attachDescGestures(el){
+  // Desktop: true hover shows the description. Gated to devices that actually
+  // support hover (a real pointer), so it never fires on touch and can't get
+  // stuck on like the old emulated-hover did.
+  if (window.matchMedia && window.matchMedia("(hover: hover)").matches){
+    el.addEventListener("mouseenter", () => el.classList.add("showdesc"));
+    el.addEventListener("mouseleave", () => el.classList.remove("showdesc"));
+  }
+  // Touch (and any non-hover pointer): press-and-hold shows it while held,
+  // hides the instant you lift. Uses Pointer Events for reliability.
+  let pressTimer = null, longPressed = false, downId = null, startX = 0, startY = 0;
+  const show = () => { longPressed = true; el.classList.add("showdesc"); };
+  const hide = () => { el.classList.remove("showdesc"); };
+  const clearTimer = () => { if (pressTimer){ clearTimeout(pressTimer); pressTimer = null; } };
+
+  const endPress = (e) => {
+    clearTimer();
+    if (longPressed) hide();   // description only lives while held
+    if (e && downId === e.pointerId){ try { el.releasePointerCapture(e.pointerId); } catch(_){} }
+    downId = null;
+  };
+  el.addEventListener("pointerup", endPress);
+  el.addEventListener("pointerdown", (e) => {
+    if (e.pointerType === "mouse") return;   // mouse uses hover, not hold
+    downId = e.pointerId;
+    longPressed = false;
+    startX = e.clientX; startY = e.clientY;
+    clearTimer();
+    // Capture the pointer so the hold survives the card being partially
+    // off-screen or the page nudging as you press.
+    try { el.setPointerCapture(e.pointerId); } catch(_){}
+    pressTimer = setTimeout(show, 350);
+  });
+  el.addEventListener("pointercancel", endPress);
+  el.addEventListener("pointermove", (e) => {
+    if (downId !== e.pointerId) return;
+    // Only a real drag (beyond a small threshold) counts as a scroll and
+    // cancels the gesture; tiny finger jitter while holding is ignored.
+    const moved = Math.hypot(e.clientX - startX, e.clientY - startY);
+    if (moved > 14){
+      if (pressTimer) clearTimer();   // moved before the hold registered = scrolling
+      if (longPressed) endPress(e);   // dragged away while showing = dismiss
+    }
+  });
+  // Suppress the tap-select that would fire after a long-press.
+  el.addEventListener("click", (e) => {
+    if (longPressed){ e.stopImmediatePropagation(); e.preventDefault(); longPressed = false; }
+  }, true);
+}
+// Swap a tile's static image for a looping muted video (or back) — used on select/deselect.
+function setTileAnim(el, on){
+  const anim = el.dataset.anim;
+  if (!anim) return;
+  const role = ROSTER.find(r => r.id === el.dataset.id);
+  const existingVid = el.querySelector("video.cardvid");
+  if (on && !existingVid){
+    const img = el.querySelector("img");
+    const v = document.createElement("video");
+    v.className = "cardvid"; v.src = anim;
+    v.muted = true; v.loop = true; v.autoplay = true; v.playsInline = true;
+    v.setAttribute("muted",""); v.setAttribute("playsinline","");
+    if (img) img.replaceWith(v); else el.prepend(v);
+    v.play().catch(()=>{});
+  } else if (!on && existingVid){
+    const img = document.createElement("img");
+    img.src = role.image; img.alt = role.name; img.loading = "lazy";
+    existingVid.replaceWith(img);
+  }
+}
+function refreshCount(){
+  const n = selected.size;
+  document.getElementById("playCnt").textContent = n ? " " + n : "";
+  document.getElementById("playBtn").disabled = n === 0;
+  document.getElementById("playDock").classList.toggle("show", n > 0);
+}
+function toggle(id, el){
+  if (selected.has(id)){ selected.delete(id); el.classList.remove("on"); playSfx(clickOff); setTileAnim(el, false); }
+  else { selected.add(id); el.classList.add("on"); playSfx(clickOn); setTileAnim(el, true); }
+  refreshCount();
+  // If a session is live, keep joined phones' cheat sheets in sync as the host
+  // changes characters between games.
+  if (mpConfigured && getHostSession()) broadcastRoles(cheatData(), settings.mpHostPlayer);
+}
+document.getElementById("clearBtn").onclick = () => {
+  selected.clear(); playSfx(clickOff);
+  document.querySelectorAll(".role.on").forEach(e => { e.classList.remove("on"); setTileAnim(e, false); });
+  refreshCount();
+  if (mpConfigured && getHostSession()) broadcastRoles(cheatData(), settings.mpHostPlayer);
+};
+
+// ---------- settings tiles ----------
+const dlg = document.getElementById("settings");
+const preview = document.getElementById("preview");
+function buildTiles(boxId, items, activeDir, inactiveDir, isSel, onPick){
+  const box = document.getElementById(boxId); box.innerHTML = "";
+  items.forEach(item => {
+    const tile = document.createElement("div");
+    tile.className = "tile" + (isSel(item) ? " on" : ""); tile.dataset.id = item.id;
+    const src = isSel(item) ? `${activeDir}/${item.id}.jpg` : `${inactiveDir}/${item.id} - Copy.jpg`;
+    tile.innerHTML = `<img src="${src}" alt="${item.label}" title="${item.label}">`;
+    tile.onclick = () => {
+      onPick(item); playSfx(clickOn);
+      [...box.children].forEach(c => {
+        const it = items.find(i => i.id === c.dataset.id); const sel = isSel(it);
+        c.classList.toggle("on", sel);
+        c.querySelector("img").src = sel ? `${activeDir}/${it.id}.jpg` : `${inactiveDir}/${it.id} - Copy.jpg`;
+      });
+    };
+    box.appendChild(tile);
+  });
+}
+function renderSettings(){
+  buildTiles("musicTiles", MUSIC, "Settings/Songs_Active", "Settings/Songs_Inactive",
+    m => settings.musicId === m.id, m => { settings.musicId = m.id; settings.music = m.file; });
+  buildTiles("voteTiles", VOTE_TIMERS, "Settings/Time_Active", "Settings/Time_Inactive",
+    v => settings.voteTimer === v.ms, v => { settings.voteTimer = v.ms; });
+  buildTiles("roleTiles", ROLE_TIMERS, "Settings/Time_Active", "Settings/Time_Inactive",
+    r => settings.roleTimer === r.ms, r => { settings.roleTimer = r.ms; });
+  // Mobile voting toggles (defaults live in DEFAULT_SETTINGS).
+  const bind = (id, key) => {
+    const el = document.getElementById(id);
+    el.checked = !!settings[key];
+    el.onchange = () => {
+      settings[key] = el.checked;
+      updateMpDeps();
+      // Keep players + the joined-count badge in sync when host-is-player or
+      // mobile voting changes during an active session.
+      if (mpConfigured && getHostSession()){
+        refreshHostCount();
+        broadcastRoles(cheatData(), settings.mpHostPlayer);
+      }
+    };
+  };
+  bind("mpEnabled","mpEnabled"); bind("mpHostPlayer","mpHostPlayer");
+  bind("mpShowVotes","mpShowVotes"); bind("mpCheat","mpCheat");
+  const hn = document.getElementById("mpHostName");
+  hn.value = settings.mpHostName || "";
+  hn.oninput = () => { settings.mpHostName = hn.value.trim(); };
+  // If a session is live, apply the new host name to the room when editing ends.
+  hn.onchange = () => {
+    if (mpConfigured && getHostSession() && settings.mpHostName) {
+      renameHost(settings.mpHostName, cheatData());
+    }
+  };
+  updateMpDeps();
+}
+// "Show who voted" only matters when voting is on — grey it out otherwise.
+// "This device is also a player" stays available even without mobile voting,
+// since it controls whether the host counts as someone in the room.
+function updateMpDeps(){
+  const on = document.getElementById("mpEnabled").checked;
+  ["mpShowVotes"].forEach(id => {
+    const el = document.getElementById(id);
+    el.disabled = !on;
+    el.closest(".mpRow").style.opacity = on ? "1" : "0.45";
+  });
+}
+// ---------- slide-out menu ----------
+const menuPanel = document.getElementById("menuPanel");
+const menuOverlay = document.getElementById("menuOverlay");
+function openMenu(){ menuPanel.classList.add("show"); menuOverlay.classList.add("show"); }
+function closeMenu(){
+  menuPanel.classList.remove("show");
+  menuOverlay.classList.remove("show");
+  // Belt-and-suspenders: ensure the dimming overlay can't stay stuck visible.
+  menuOverlay.style.visibility = "hidden";
+  menuOverlay.style.opacity = "0";
+}
+function reallyOpenMenu(){
+  menuOverlay.style.visibility = "";
+  menuOverlay.style.opacity = "";
+  openMenu();
+}
+document.getElementById("menuBtn").onclick = reallyOpenMenu;
+document.getElementById("menuClose").onclick = closeMenu;
+menuOverlay.onclick = closeMenu;
+// If the menu was left open when the tab lost focus (e.g. opening the print page),
+// make sure it's closed and not stuck when we come back.
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") closeMenu(); });
+document.getElementById("menuSettings").onclick = () => {
+  closeMenu();
+  // Clear any multiplayer overlays that could sit above the dialog.
+  try { teardownHostVoteUI(); } catch(_){}
+  // If the dialog was somehow left open, close it first so showModal() can't
+  // throw an InvalidStateError (which previously left Settings unopenable).
+  try { if (dlg.open) dlg.close(); } catch(_){}
+  try { renderSettings(); } catch(e){ console.error("renderSettings:", e); }
+  try { dlg.showModal(); } catch(e){ console.error("showModal:", e); }
+};
+
+// ---------- Game Manual ----------
+const manualDlg = document.getElementById("manual");
+const manualFrame = document.getElementById("manualFrame");
+document.getElementById("menuManual").onclick = () => {
+  closeMenu();
+  // Load the PDF only when first opened. <embed> renders the browser's native PDF
+  // viewer (with its own search) more reliably inside a dialog than an iframe.
+  if (!manualFrame.getAttribute("src")) manualFrame.setAttribute("src", "Manual.pdf");
+  manualDlg.showModal();
+};
+document.getElementById("menuPrint").onclick = () => {
+  closeMenu();
+  // Open in the SAME tab. Popup tabs (window.open _blank) on mobile Safari can
+  // be left blank after the print dialog is cancelled; same-tab navigation
+  // avoids that entirely, and print.html has a "Back to game" button to return.
+  setTimeout(() => { window.location.href = "print.html"; }, 60);
+};
+document.getElementById("manualClose").onclick = () => manualDlg.close();
+document.getElementById("settingsClose").onclick = () => { document.getElementById("previewStop").click(); saveSettings(); dlg.close(); };
+document.getElementById("settingsReset").onclick = async () => {
+  const ok = await themedConfirm("Restore all settings to their defaults?", "Restore", "Cancel");
+  if (!ok) return;
+  for (const k in DEFAULT_SETTINGS) settings[k] = DEFAULT_SETTINGS[k];
+  saveSettings();
+  // Re-apply audio gains live for both music and voice.
+  try { applyMusicVol(); } catch(_){}
+  try { AudioGain.setVoice(settings.voiceVolume); } catch(_){}
+  narration.volume = settings.voiceVolume;
+  try { testVoice.volume = settings.voiceVolume; } catch(_){}
+  // Directly snap the volume sliders + labels to the defaults (don't rely on a
+  // full re-render reaching them).
+  const vol = document.getElementById("vol"), voiceVol = document.getElementById("voiceVol");
+  const volPct = document.getElementById("volPct"), voicePct = document.getElementById("voicePct");
+  if (vol){ vol.value = settings.volume; volPct.textContent = Math.round(settings.volume*100)+"%"; }
+  if (voiceVol){ voiceVol.value = settings.voiceVolume; voicePct.textContent = Math.round(settings.voiceVolume*100)+"%"; }
+  // Rebuild the rest of the settings UI (tiles, checkboxes).
+  renderSettings();
+};
+
+// ---------- Add to Home Screen ----------
+// Chrome/Android fires beforeinstallprompt, which we can replay on demand for a
+// native install dialog. iOS Safari has no such API — the user must use Share →
+// Add to Home Screen — so we show illustrated steps instead. If the app is
+// already installed (running standalone), we hide the menu item entirely.
+const installDlg   = document.getElementById("install");
+const installBody  = document.getElementById("installBody");
+const installBtn   = document.getElementById("menuInstall");
+
+const isStandalone = window.matchMedia("(display-mode: standalone)").matches
+  || window.navigator.standalone === true;           // iOS-specific flag
+const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent)
+  || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS
+
+// Hide the menu item once the app is already on the home screen.
+if (isStandalone) installBtn.style.display = "none";
+
+// Capture Android's install prompt so we can fire it from the menu.
+let deferredPrompt = null;
+window.addEventListener("beforeinstallprompt", (e) => {
+  e.preventDefault();        // stop Chrome's mini-infobar; we'll trigger it ourselves
+  deferredPrompt = e;
+});
+// If the user installs (any path), hide the menu item.
+window.addEventListener("appinstalled", () => { installBtn.style.display = "none"; });
+
+const IOS_STEPS = `
+  <p>To keep the game one tap away, add it to your home screen:</p>
+  <ol style="margin:10px 0 0;padding-left:22px">
+    <li style="margin-bottom:8px">Tap the <strong>Share</strong> button
+      <span aria-hidden="true">⬆️</span> at the bottom of Safari.</li>
+    <li style="margin-bottom:8px">Scroll down and tap <strong>Add to Home Screen</strong>.</li>
+    <li>Tap <strong>Add</strong> in the top corner.</li>
+  </ol>
+  <p style="margin-top:12px;font-size:13px;opacity:.75">Tip: this only works in Safari,
+    not in other browsers on iPhone/iPad.</p>`;
+
+const GENERIC_STEPS = `
+  <p>To keep the game one tap away, add it to your home screen:</p>
+  <ol style="margin:10px 0 0;padding-left:22px">
+    <li style="margin-bottom:8px">Open your browser's menu (often <strong>⋮</strong> or
+      <strong>⋯</strong>).</li>
+    <li>Choose <strong>Add to Home Screen</strong> or <strong>Install app</strong>.</li>
+  </ol>`;
+
+installBtn.onclick = async () => {
+  closeMenu();
+  // Android / Chrome: fire the real native prompt if we captured one.
+  if (deferredPrompt) {
+    deferredPrompt.prompt();
+    try { await deferredPrompt.userChoice; } catch (_) {}
+    deferredPrompt = null;   // a prompt can only be used once
+    return;
+  }
+  // Otherwise show platform-appropriate manual steps.
+  installBody.innerHTML = isIOS ? IOS_STEPS : GENERIC_STEPS;
+  installDlg.showModal();
+};
+document.getElementById("installClose").onclick = () => installDlg.close();
+
+// ---------- Themed name prompt (replaces window.prompt for naming) ----------
+const namePromptDlg = document.getElementById("namePrompt");
+function themedPrompt(title, defaultValue){
+  return new Promise(resolve => {
+    document.getElementById("namePromptTitle").textContent = title || "Enter your name";
+    const input = document.getElementById("namePromptInput");
+    input.value = defaultValue || "";
+    const ok = document.getElementById("namePromptOk");
+    const cancel = document.getElementById("namePromptCancel");
+    const finish = (val) => {
+      ok.onclick = null; cancel.onclick = null; input.onkeydown = null;
+      try { namePromptDlg.close(); } catch(_){}
+      resolve(val);
+    };
+    ok.onclick = () => finish((input.value || "").trim());
+    cancel.onclick = () => finish(null);
+    input.onkeydown = (e) => { if (e.key === "Enter") finish((input.value || "").trim()); };
+    try { if (namePromptDlg.open) namePromptDlg.close(); } catch(_){}
+    namePromptDlg.showModal();
+    setTimeout(() => input.focus(), 50);
+  });
+}
+// Expose so the multiplayer player client can use the same themed prompt.
+window.__onbcPrompt = themedPrompt;
+
+// Themed yes/no confirmation (matches the candy-cane name prompt).
+const confirmPromptDlg = document.getElementById("confirmPrompt");
+function themedConfirm(message, okLabel, cancelLabel){
+  return new Promise(resolve => {
+    document.getElementById("confirmPromptText").textContent = message || "Are you sure?";
+    const ok = document.getElementById("confirmPromptOk");
+    const cancel = document.getElementById("confirmPromptCancel");
+    ok.textContent = okLabel || "Yes";
+    cancel.textContent = cancelLabel || "Cancel";
+    const finish = (val) => {
+      ok.onclick = null; cancel.onclick = null;
+      try { confirmPromptDlg.close(); } catch(_){}
+      resolve(val);
+    };
+    ok.onclick = () => finish(true);
+    cancel.onclick = () => finish(false);
+    try { if (confirmPromptDlg.open) confirmPromptDlg.close(); } catch(_){}
+    confirmPromptDlg.showModal();
+  });
+}
+
+// ---------- Host a Session / Join a Game ----------
+const hostBtn = document.getElementById("menuHost");
+const joinBtn = document.getElementById("menuJoin");
+const hostCodeBox = document.getElementById("hostCodeBox");
+const hostCodeEl = document.getElementById("hostCode");
+const hostCodeCount = document.getElementById("hostCodeCount");
+
+let lastHostPlayers = [];
+function refreshHostCount(players){
+  if (players) lastHostPlayers = players;
+  players = players || lastHostPlayers;
+  const playerN = players ? players.length : 0;
+  // The host counts as someone in the room whenever "this device is also a
+  // player" is on — independent of whether mobile voting is enabled.
+  const includeHost = !!settings.mpHostPlayer;
+  const n = playerN + (includeHost ? 1 : 0);
+  // Frozen badge next to the menu button.
+  const badge = document.getElementById("joinedBadge");
+  document.getElementById("joinedCount").textContent = n;
+  badge.classList.add("show");
+  hostCodeCount.innerHTML = "";
+  hostCodeCount.append(document.createTextNode(
+    n ? `${n} in the room:` : "Waiting for players…"));
+  if (n){
+    const list = document.createElement("div");
+    list.style.cssText = "margin-top:6px;font-family:'NitemareFont','Trebuchet MS',Arial,sans-serif;font-size:15px;color:#fff;text-align:center;line-height:1.5";
+    if (includeHost){
+      const me = document.createElement("div");
+      me.textContent = ((settings.mpHostName && settings.mpHostName.trim()) || "Host") + " (you)";
+      list.append(me);
+    }
+    players.forEach(p => {
+      const row = document.createElement("div");
+      row.textContent = p.name;
+      list.append(row);
+    });
+    hostCodeCount.append(list);
+  }
+}
+
+hostBtn.onclick = async () => {
+  if (!mpConfigured) { alert("Mobile voting isn't set up yet."); return; }
+  const existing = getHostSession();
+  if (existing) {
+    // End the session.
+    await endSession();
+    hostCodeBox.style.display = "none";
+    document.getElementById("joinedBadge").classList.remove("show");
+    document.getElementById("roomCodeBadge").textContent = "";
+    hostBtn.textContent = "🎉 Host a Session";
+    return;
+  }
+  // Start a session. Prompt for a name first (saved to settings; editable later).
+  let hostName = (settings.mpHostName && settings.mpHostName.trim()) || "";
+  const entered = await themedPrompt("Enter your name", hostName);
+  if (entered === null || !entered) { return; }   // cancelled — don't start
+  hostName = entered.slice(0, 16);
+  settings.mpHostName = hostName;
+  saveSettings();
+  hostBtn.textContent = "⏳ Starting…";
+  try {
+    const sess = await startSession({
+      hostName,
+      onPlayersChanged: (players) => {
+        refreshHostCount(players);
+        // A newly-joined player needs the current cheat data and host status.
+        if (mpConfigured && getHostSession()) broadcastRoles(cheatData(), settings.mpHostPlayer);
+      },
+    });
+    hostCodeEl.textContent = sess.code;
+    document.getElementById("roomCodeBadge").textContent = sess.code;
+    refreshHostCount(sess.players);
+    hostCodeBox.style.display = "block";
+    hostBtn.textContent = "⏹ End Session";
+    // Push current character selection to any joiners for the cheat sheet.
+    broadcastRoles(cheatData(), settings.mpHostPlayer);
+  } catch (e) {
+    hostBtn.textContent = "🎉 Host a Session";
+    alert("Couldn't start the session. Check your internet connection.");
+  }
+};
+
+joinBtn.onclick = () => { closeMenu(); openJoinPrompt(); };
+
+// ---------- night play ----------
+const stage = document.getElementById("stage");
+const narration = document.getElementById("narration");
+const music = document.getElementById("music");
+
+// ---------- Web Audio gain system (mobile-compatible volume) ----------
+// Mobile browsers (esp. iOS) ignore the audio element's .volume property, so volume
+// sliders do nothing there. Routing each element through a Web Audio GainNode lets us
+// control volume on every platform. Elements are connected lazily on first user gesture.
+const AudioGain = (() => {
+  let ctx = null;
+  const gains = {};        // elementId -> GainNode
+  const connected = new Set();
+  let musicGain = 1, voiceGain = 1;
+  const VOICE_IDS = new Set(["narration", "callout", "testVoice"]);
+  const MUSIC_IDS = new Set(["music", "preview"]);
+  function ensureCtx(){
+    if (!ctx){
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return null;            // very old browser: fall back silently
+      ctx = new AC();
+    }
+    if (ctx.state === "suspended") ctx.resume().catch(()=>{});
+    return ctx;
+  }
+  function connect(el){
+    if (!el || connected.has(el.id)) return;
+    const c = ensureCtx();
+    if (!c) return;
+    try {
+      const srcNode = c.createMediaElementSource(el);
+      const g = c.createGain();
+      g.gain.value = VOICE_IDS.has(el.id) ? voiceGain : musicGain;
+      srcNode.connect(g); g.connect(c.destination);
+      gains[el.id] = g; connected.add(el.id);
+    } catch(e){ /* already connected or unsupported */ }
+  }
+  function connectAll(){
+    ["narration","callout","music","preview","testVoice"].forEach(id => {
+      const el = document.getElementById(id); if (el) connect(el);
+    });
+  }
+  function setMusic(v){ musicGain = v; MUSIC_IDS.forEach(id => { if (gains[id]) gains[id].gain.value = v; }); }
+  function setVoice(v){ voiceGain = v; VOICE_IDS.forEach(id => { if (gains[id]) gains[id].gain.value = v; }); }
+  // Buffer playback for short cues (vote callouts). Routed through the voice gain so the
+  // voice slider affects them, and — crucially — this plays reliably on mobile, where a
+  // bare <audio> element triggered from a timer (no user gesture) often stays silent.
+  const buffers = {};      // url -> decoded AudioBuffer
+  let calloutGain = null;
+  async function loadBuffer(url){
+    if (buffers[url]) return buffers[url];
+    const c = ensureCtx(); if (!c) return null;
+    const resp = await fetch(url);
+    const arr = await resp.arrayBuffer();
+    const buf = await c.decodeAudioData(arr);
+    buffers[url] = buf; return buf;
+  }
+  async function playBuffer(url){
+    const c = ensureCtx(); if (!c) return false;
+    try {
+      const buf = await loadBuffer(url); if (!buf) return false;
+      if (!calloutGain){ calloutGain = c.createGain(); calloutGain.connect(c.destination); }
+      calloutGain.gain.value = voiceGain;
+      const src = c.createBufferSource(); src.buffer = buf;
+      src.connect(calloutGain); src.start(0);
+      return true;
+    } catch(e){ return false; }
+  }
+  return { ensureCtx, connectAll, setMusic, setVoice, playBuffer, loadBuffer,
+           get musicGain(){return musicGain;}, get voiceGain(){return voiceGain;} };
+})();
+// Connect on first user interaction (required by browser autoplay policies).
+["click","touchstart","keydown"].forEach(evt =>
+  document.addEventListener(evt, () => { AudioGain.ensureCtx(); AudioGain.connectAll(); }, { once:true, capture:true }));
+
+// ---------- Screen Wake Lock (keep phone awake during the night) ----------
+// Mobile screens sleep during long narration when nobody's touching them. This asks the
+// device to keep the screen on while a game is running. Released when the game ends.
+const WakeLock = (() => {
+  let sentinel = null;     // the active wake lock
+  let want = false;        // whether we currently want the screen kept awake
+  async function acquire(){
+    want = true;
+    if (!("wakeLock" in navigator)) return;   // unsupported browser: harmless no-op
+    if (sentinel) return;
+    try {
+      sentinel = await navigator.wakeLock.request("screen");
+      sentinel.addEventListener("release", () => { sentinel = null; });
+    } catch(e){ /* denied (low battery, etc.) — nothing to do */ }
+  }
+  async function release(){
+    want = false;
+    if (sentinel){ try { await sentinel.release(); } catch(e){} sentinel = null; }
+  }
+  // The lock is auto-dropped when the tab is hidden; re-acquire when it returns.
+  document.addEventListener("visibilitychange", () => {
+    if (want && document.visibilityState === "visible" && !sentinel) acquire();
+  });
+  return { acquire, release };
+})();
+// Expose so the multiplayer player client can keep joined phones awake too.
+window.__onbcWakeLock = WakeLock;
+
+
+const pCenter = document.getElementById("pCenter"), pLeft = document.getElementById("pLeft"), pRight = document.getElementById("pRight");
+const vCenter = document.getElementById("vCenter"), vLeft = document.getElementById("vLeft"), vRight = document.getElementById("vRight");
+// Map image filename (e.g. "Grinch.jpg") -> animation path, built from the roster.
+const ANIM_BY_IMG = {};
+ROSTER.forEach(r => { if (r.anim){ const f = (r.image||"").split("/").pop(); if (f) ANIM_BY_IMG[f] = r.anim; } });
+// Pair each portrait <img> with its overlay <video>.
+const VID_FOR = new Map([[pCenter, vCenter], [pLeft, vLeft], [pRight, vRight]]);
+function hideCharVids(){ [vCenter, vLeft, vRight].forEach(v => { v.classList.remove("show"); v.pause(); v.removeAttribute("src"); }); }
+const eyes = document.getElementById("eyes"), voteImg = document.getElementById("voteImg");
+const wakeImg = document.getElementById("wakeImg");
+const sub = document.getElementById("sub"), sub2 = document.getElementById("sub2"), rem = document.getElementById("rem"), timerNum = document.getElementById("timerNum");
+const tokenImg = document.getElementById("token"), tokenFallback = document.getElementById("tokenFallback");
+const pausebar = document.getElementById("pausebar"), pausefill = pausebar.querySelector("i");
+let runState = { stopped:false, paused:false };
+let voteInterval = null;
+
+// ---------- volume controls (music has per-song gain; voice is separate) ----------
+function currentSongGain(){
+  const m = MUSIC.find(x => x.id === settings.musicId);
+  return m && m.gain ? m.gain : 1;
+}
+function applyMusicVol(){
+  const v = Math.min(1, settings.volume * currentSongGain());
+  // Web Audio gain (works on mobile); .volume kept as fallback for no-WebAudio browsers.
+  AudioGain.setMusic(v);
+  preview.volume = v; music.volume = v;
+}
+(function initVolumeUI(){
+  const vol = document.getElementById("vol"), voiceVol = document.getElementById("voiceVol");
+  const volPct = document.getElementById("volPct"), voicePct = document.getElementById("voicePct");
+  vol.value = settings.volume; voiceVol.value = settings.voiceVolume;
+  volPct.textContent = Math.round(settings.volume*100)+"%";
+  voicePct.textContent = Math.round(settings.voiceVolume*100)+"%";
+  vol.oninput = e => { settings.volume = parseFloat(e.target.value); volPct.textContent = Math.round(settings.volume*100)+"%"; applyMusicVol(); };
+  voiceVol.oninput = e => { settings.voiceVolume = parseFloat(e.target.value); voicePct.textContent = Math.round(settings.voiceVolume*100)+"%"; AudioGain.setVoice(settings.voiceVolume); narration.volume = settings.voiceVolume; testVoice.volume = settings.voiceVolume; };
+  document.getElementById("previewBtn").onclick = () => {
+    testActive = false; testVoice.pause();          // stop any running Test Mix
+    preview.loop = true;
+    preview.src = settings.music; applyMusicVol(); preview.play().catch(()=>{});
+  };
+  // Test Mix: play music + a continuous stream of narration clips so you can dial in the balance.
+  const SAMPLE_CLIPS = ["006_Rudolph.mp3","027_Cupid.mp3","039_Grinch.mp3","060_Santa.mp3","049_Scrooge.mp3","068_Mrs.mp3","102_Yukon.mp3","033_Frosty.mp3","045_Krampus.mp3","037_Hocus.mp3","058_Max.mp3","099_Wise.mp3","052_Zero.mp3","002_Hermey.mp3","035_Hinkle.mp3"];
+  const testVoice = document.getElementById("testVoice");
+  let testQueue = [], testActive = false;
+  function shuffle(a){ a=[...a]; for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+  function playNextTestClip(){
+    if (!testActive) return;
+    if (testQueue.length === 0) testQueue = shuffle(SAMPLE_CLIPS);   // reshuffle and loop
+    const clip = testQueue.shift();
+    testVoice.src = "Audio/Gameplay/" + clip;
+    testVoice.volume = settings.voiceVolume;
+    testVoice.play().catch(()=>{});
+  }
+  testVoice.addEventListener("ended", () => { if (testActive) setTimeout(playNextTestClip, 350); });
+  // Fallback: if an 'ended' event is ever missed, a poll keeps the stream going.
+  setInterval(() => {
+    if (testActive && testVoice.paused && testVoice.currentTime > 0 &&
+        testVoice.currentTime >= (testVoice.duration || 1e9) - 0.3) {
+      playNextTestClip();
+    }
+  }, 1000);
+  document.getElementById("testVoiceBtn").onclick = () => {
+    preview.src = settings.music; applyMusicVol();
+    preview.loop = true; preview.play().catch(()=>{});
+    testActive = true; testQueue = shuffle(SAMPLE_CLIPS);
+    playNextTestClip();
+  };
+  document.getElementById("previewStop").onclick = () => {
+    testActive = false; preview.pause(); preview.loop = false; testVoice.pause();
+  };
+})();
+
+const setImg = (el, src) => {
+  const vid = VID_FOR.get(el);
+  if (src){
+    const anim = ANIM_BY_IMG[src];
+    if (anim && vid){
+      // Animated character: show looping video, hide the static image.
+      // Only (re)load if it's a different clip than what's already playing — otherwise
+      // leave it rolling so consecutive steps of the same character don't restart it.
+      const want = anim;
+      const current = vid.getAttribute("src");
+      if (current !== want){ vid.src = want; vid.play().catch(()=>{}); }
+      vid.classList.add("show"); el.classList.remove("show");
+    } else {
+      el.src = "Roles_Active/" + src; el.classList.add("show");
+      if (vid){ vid.classList.remove("show"); vid.pause(); vid.removeAttribute("src"); }
+    }
+  } else {
+    el.classList.remove("show");
+    if (vid){ vid.classList.remove("show"); vid.pause(); vid.removeAttribute("src"); }
+  }
+};
+
+function showToken(name){
+  if (!name){ tokenImg.classList.remove("show"); tokenFallback.classList.remove("show"); return; }
+  // Try to load the token art; if it 404s, show a labeled placeholder instead.
+  tokenImg.onerror = () => {
+    tokenImg.classList.remove("show");
+    tokenFallback.textContent = "🎁 " + name.replace(/\.(png|jpg)$/i,"");
+    tokenFallback.classList.add("show");
+  };
+  tokenImg.onload = () => { tokenFallback.classList.remove("show"); tokenImg.classList.add("show"); };
+  tokenImg.src = "Tokens/" + name;
+}
+
+const ui = {
+  showEyes(){ eyes.classList.add("show"); },
+  clearEyes(){ eyes.classList.remove("show"); },
+  render(step){
+    const hasImg = step.center || step.left || step.right;
+    if (hasImg) {
+      eyes.classList.remove("show");
+      if (step.left || step.right){ setImg(pLeft, step.left); setImg(pRight, step.right); pCenter.classList.remove("show"); vCenter.classList.remove("show"); vCenter.pause(); }
+      else { setImg(pCenter, step.center); pLeft.classList.remove("show"); pRight.classList.remove("show"); }
+    }
+    // Subtitle display: normally line 1 is primary, line 2 secondary. But some steps
+    // (e.g. Yukon, Wise Men) intentionally put the whole instruction on line 2 with line 1
+    // blank — in that case promote line 2 to the main line so it reads clearly.
+    const s1 = step.subtitle !== undefined ? step.subtitle : sub.textContent;
+    const s2 = step.subtitle2 || "";
+    if ((!s1 || s1.trim() === "") && s2) {
+      sub.textContent = s2;
+      sub2.textContent = "";
+    } else {
+      if (step.subtitle !== undefined) sub.textContent = step.subtitle;
+      sub2.textContent = s2;
+    }
+    // Token handling: the original clears the token on almost every step and only shows
+    // it when explicitly set. The "Or..." connector keeps the prior screen (incl. token).
+    if (step.token) { showToken(step.token); tokenImg.classList.toggle("pair", !!(step.left || step.right)); }
+    else if (!step.isOr) showToken(null);
+  },
+  play(src){
+    return new Promise(res => {
+      if (runState.stopped) return res();
+      narration.src = src;
+      runState.currentClip = src;            // remember in case a pause interrupts startup
+      const done = () => {
+        narration.removeEventListener("ended", done);
+        runState.currentClip = null;
+        res();
+      };
+      narration.addEventListener("ended", done);
+      const tryPlay = () => {
+        narration.play().catch(() => {
+          // Could be a pause interrupt (fine — resume handles it) or a genuine block.
+          if (!runState.paused) {
+            // genuine failure: retry shortly, then give up so the night never hangs
+            setTimeout(() => {
+              if (!runState.paused && narration.paused) {
+                narration.play().catch(() => done());
+              }
+            }, 400);
+          }
+        });
+      };
+      if (!runState.paused) tryPlay();
+      // if paused at the moment this step starts, the resume handler will start it
+      runState._resumeClip = tryPlay;
+    });
+  },
+  markPause(ms){
+    pausebar.style.visibility = "visible";
+    pausefill.style.animation = "none";
+    // force reflow so the animation restarts cleanly each time
+    void pausefill.offsetWidth;
+    pausefill.style.animation = `grow ${ms}ms linear forwards`;
+    pausefill.style.animationPlayState = runState.paused ? "paused" : "running";
+  },
+  clearPause(){ pausebar.style.visibility = "hidden"; },
+  wake(){
+    // Everyone wakes: stop the music for discussion, hide portraits/eyes, show Wake graphic.
+    document.getElementById("music").pause();
+    eyes.classList.remove("show");
+    pCenter.classList.remove("show"); pLeft.classList.remove("show"); pRight.classList.remove("show"); hideCharVids();
+    showToken(null); sub2.textContent = "";
+    wakeImg.style.display = "block";
+    sub.textContent = "";
+  },
+  startVote(ms){
+    runState.voting = true;   // music stays off during discussion/vote
+    music.pause();            // explicitly stop music — it must not play during the vote
+    wakeImg.style.display = "none";
+    showToken(null); sub2.textContent = ""; sub.textContent = "";
+
+    // ----- MOBILE VOTING PATH -----
+    // ----- HOSTED SESSION PATH -----
+    // Whenever a session is hosted, the host hands off to the session vote
+    // controller. Whether players get interactive vote buttons (mobile voting)
+    // or just a synced timer is decided inside, from settings.mpEnabled.
+    if (mpConfigured && getHostSession()) {
+      // Push current roles to joined phones for the cheat sheet.
+      broadcastRoles(cheatData(), settings.mpHostPlayer);
+      voteImg.classList.remove("show");
+      voteImg.onclick = null;
+      document.getElementById("voteHint").classList.remove("show");
+      sub.textContent = "";
+      timerNum.textContent = "";
+      // The lock audio is this narration element; its 'ended' fires the tally.
+      narration.src = "Audio/Gameplay/999_Vote.mp3";
+      startHostVoting({
+        settings,
+        votingEnabled: !!settings.mpEnabled,
+        getCheatData: cheatData,
+        voteAudioEl: narration,
+        durationMs: ms,
+        onFinished: () => { returnHome(); },
+        hooks: {
+          hideThemedVote: () => { timerNum.textContent = ""; voteImg.classList.remove("show"); voteImg.src = "VoteNow.png"; },
+          playCallout: (file) => { playCalloutCue(file); },
+        },
+      });
+      return;
+    }
+    // Not hosting a session — classic local timer.
+
+    voteImg.classList.add("show");
+    document.getElementById("voteHint").classList.add("show");
+
+    let remainMs = ms;
+    let firedMinute = false, firedThirty = false, ended = false;
+
+    const finish = () => {
+      if (ended) return;
+      ended = true;
+      if (voteInterval){ clearInterval(voteInterval); voteInterval = null; }
+      timerNum.textContent = "";
+      rem.textContent = "";
+      document.getElementById("voteHint").classList.remove("show");
+      sub.textContent = "";
+      // Show the Vote.png graphic during the 3-2-1 vote audio.
+      voteImg.src = "Vote.png"; voteImg.classList.add("show");
+      // Play the final vote cue, and only return home once it has finished playing.
+      narration.onended = () => { narration.onended = null; voteImg.classList.remove("show"); voteImg.src = "VoteNow.png"; setTimeout(returnHome, 1500); };
+      narration.src = "Audio/Gameplay/999_Vote.mp3";
+      narration.play().catch(() => { voteImg.classList.remove("show"); voteImg.src = "VoteNow.png"; setTimeout(returnHome, 4000); }); // if audio blocked, still return
+    };
+    // Clicking the moon skips the discussion timer and goes straight to the vote.
+    voteImg.onclick = finish;
+
+    const stepMs = 100;
+    const tick = () => {
+      if (runState.paused) return;                 // freeze countdown while paused
+      remainMs -= stepMs;
+      if (remainMs <= 0){ finish(); return; }
+      const total = Math.ceil(remainMs / 1000);    // whole seconds, no partials
+      const m = Math.floor(total / 60), s = total % 60;
+      timerNum.textContent = m > 0 ? `${m}:${s < 10 ? "0" : ""}${s}` : `${s}`;
+      if (!firedMinute && ms > 60000 && total <= 60){ firedMinute = true; flash("1 Minute Remaining!", "950_Minute.mp3"); }
+      if (!firedThirty && total <= 30){ firedThirty = true; flash("Only 30 Seconds Left!", "951_30Seconds.mp3"); }
+    };
+    voteInterval = setInterval(tick, stepMs);
+    // initial display
+    timerNum.textContent = (() => { const t=Math.ceil(ms/1000); const m=Math.floor(t/60),s=t%60; return m>0?`${m}:${s<10?"0":""}${s}`:`${s}`; })();
+  }
+};
+function returnHome(){
+  runState.stopped = true;
+  WakeLock.release();                              // let the screen sleep again
+  resetStage();
+  stage.classList.remove("show");
+  // Clean up any multiplayer host overlays so they never cover the menu/settings.
+  try { teardownHostVoteUI(); } catch(_){}
+  timerNum.textContent = "";
+}
+function flash(text, clip){
+  rem.textContent = text;
+  const url = "Audio/Gameplay/" + clip;
+  // Play via Web Audio buffer (works on mobile); fall back to the <audio> element.
+  AudioGain.playBuffer(url).then(ok => {
+    if (!ok){ const callout = document.getElementById("callout"); callout.src = url; callout.play().catch(()=>{}); }
+  });
+  setTimeout(() => { if (rem.textContent === text) rem.textContent = ""; }, 4000);
+}
+// Play a timer callout cue (1 minute / 30 seconds) during a hosted-session vote.
+function playCalloutCue(file){
+  const label = file.includes("Minute") ? "1 Minute Remaining!" : "Only 30 Seconds Left!";
+  flash(label, file);
+}
+
+async function startGame(){
+  resetStage();                                  // wipe any leftover state from a prior run
+  try { teardownHostVoteUI(); } catch(_){}        // clear any mp overlays from a prior vote
+  runState = { stopped:false, paused:false, voting:false };
+  stage.classList.add("show");
+  WakeLock.acquire();                              // keep the screen awake during the night
+  AudioGain.ensureCtx(); AudioGain.connectAll();   // ensure gain routing is live for the run
+  // Preload the vote callouts so they fire instantly (and work on mobile).
+  AudioGain.loadBuffer("Audio/Gameplay/950_Minute.mp3").catch(()=>{});
+  AudioGain.loadBuffer("Audio/Gameplay/951_30Seconds.mp3").catch(()=>{});
+  AudioGain.setVoice(settings.voiceVolume);
+  narration.volume = settings.voiceVolume;
+  document.getElementById("callout").volume = settings.voiceVolume;
+  music.src = settings.music; applyMusicVol(); music.play().catch(()=>{});
+  await runNight(TIMELINE, ROSTER, [...selected], settings, ui, runState);
+}
+document.getElementById("playBtn").onclick = () => maybeRemindTokens(startGame);
+// Expose for the multiplayer "Repeat Game" button (re-runs the full night).
+window.__onbcRepeatGame = startGame;
+
+// Before a game, if any tokens are involved, show a reminder to physically grab
+// them. The player confirms with "Tokens Ready" to proceed.
+const tokenDlg = document.getElementById("tokenReminder");
+function maybeRemindTokens(proceed){
+  const { standaloneTokens, presentTokens } = cheatData();
+  const hasPresent = presentTokens.length > 0;
+  if (!standaloneTokens.length && !hasPresent){ proceed(); return; }
+
+  const list = document.getElementById("tokenReminderList");
+  list.innerHTML = "";
+  const card = (name, image) => {
+    const c = document.createElement("div");
+    c.className = "mpCheatCard tok";
+    c.style.cssText = "width:150px;text-align:center;background:rgba(255,255,255,.07);border-radius:12px;padding:8px";
+    c.innerHTML = `<img src="${image}" alt="${name}" style="width:100%;aspect-ratio:1/1;object-fit:contain;display:block">
+      <div style="font-family:'NitemareFont','Trebuchet MS',Arial,sans-serif;color:#f3c969;font-size:15px;margin-top:6px">${name}</div>`;
+    return c;
+  };
+  // Standalone tokens individually.
+  standaloneTokens.forEach(t => list.append(card(t.name, t.image)));
+  // Christmas Present Tokens as a single grouped reminder (or just Gold).
+  if (hasPresent){
+    if (presentTokens.length === 1 && presentTokens[0].name === "Gold"){
+      list.append(card("Gold", presentTokens[0].image));
+    } else {
+      list.append(card("All Christmas Present Tokens", "Tokens/Present.png"));
+    }
+  }
+
+  document.getElementById("tokenReadyBtn").onclick = () => { tokenDlg.close(); proceed(); };
+  try { if (tokenDlg.open) tokenDlg.close(); } catch(_){}
+  tokenDlg.showModal();
+}
+function resetStage(){
+  // Fully clear every transient bit of game state so nothing leaks into the next run.
+  if (voteInterval){ clearInterval(voteInterval); voteInterval = null; }
+  narration.onended = null;
+  narration.pause(); try { narration.currentTime = 0; } catch(e){}
+  const callout = document.getElementById("callout"); callout.pause();
+  music.pause();
+  pausefill.style.animationPlayState = "running";
+  pausebar.style.visibility = "hidden";
+  voteImg.classList.remove("show"); voteImg.onclick = null;
+  wakeImg.style.display = "none";
+  eyes.classList.remove("show");
+  pCenter.classList.remove("show"); pLeft.classList.remove("show"); pRight.classList.remove("show"); hideCharVids();
+  showToken(null);
+  document.getElementById("voteHint").classList.remove("show");
+  document.getElementById("pauseBtn").src = "Pause.png";
+  timerNum.textContent=""; rem.textContent=""; sub.textContent=""; sub2.textContent="";
+}
+document.getElementById("stopBtn").onclick = () => {
+  runState.stopped = true;
+  WakeLock.release();                              // let the screen sleep again
+  resetStage();
+  stage.classList.remove("show");
+};
+document.getElementById("pauseBtn").onclick = (e) => {
+  const callout = document.getElementById("callout");
+  runState.paused = !runState.paused;
+  if (runState.paused){
+    runState.narrationWasPlaying = !narration.paused && !narration.ended && narration.currentTime > 0;
+    runState.calloutWasPlaying = !callout.paused && !callout.ended && callout.currentTime > 0;
+    narration.pause(); music.pause(); callout.pause();
+    pausefill.style.animationPlayState = "paused";
+    e.target.src = "Play.png"; playSfx(clickOff);
+  } else {
+    // Resume: restart the current narration clip if one was mid-flight (covers the case
+    // where a pause interrupted it before it could start, which used to hang the night).
+    if (runState.currentClip && runState._resumeClip) runState._resumeClip();
+    else if (runState.narrationWasPlaying) narration.play().catch(()=>{});
+    if (runState.calloutWasPlaying) callout.play().catch(()=>{});
+    if (!runState.voting) music.play().catch(()=>{});
+    pausefill.style.animationPlayState = "running";
+    e.target.src = "Pause.png"; playSfx(clickOn);
+  }
+};
+
+// ---------- snow ----------
+function makeSnow(container){
+  for (let i=0;i<60;i++){
+    const f = document.createElement("i"); f.textContent = "❄";
+    f.style.left = Math.random()*100 + "vw";
+    f.style.fontSize = (8+Math.random()*16) + "px";
+    f.style.animationDuration = (6+Math.random()*10) + "s";
+    f.style.animationDelay = (-Math.random()*12) + "s";
+    container.appendChild(f);
+  }
+}
+makeSnow(document.getElementById("snow"));
+makeSnow(document.getElementById("snowStage"));
+refreshCount();
+</script>
+</body>
+</html>
