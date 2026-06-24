@@ -16,10 +16,10 @@
 
 import { configured, joinRoom, createVoteSession,
          saveSession, loadSession, clearSession,
-         startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch }
-  from "./multiplayer.js?v=73";
+         startSession, endSession, getHostSession, broadcastRoles, renameHost }
+  from "./multiplayer.js?v=72";
 
-export { configured, startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch };
+export { configured, startSession, endSession, getHostSession, broadcastRoles, renameHost };
 
 // ---- tiny DOM helpers ----
 const el = (tag, props = {}, kids = []) => {
@@ -534,10 +534,6 @@ export function startPlayerClient(code) {
           if (onWaitingScreen) waiting();
         },
         onMessage: (type, payload) => {
-          if (type === "game_switch") {
-            // Host moved between ONBC and GAC — follow them.
-            if (window.__showGame) window.__showGame(payload.game, { fromHost: true });
-          }
           if (type === "roles") {
             cheatData = payload.cheat || payload.roles || cheatData;
             if (payload.hostIsPlayer !== undefined) hostIsPlayer = !!payload.hostIsPlayer;

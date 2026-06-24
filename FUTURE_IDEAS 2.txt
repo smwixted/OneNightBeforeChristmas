@@ -1,0 +1,33 @@
+ONE NIGHT BEFORE CHRISTMAS — FUTURE IDEAS
+(Not yet built — parked for later)
+
+1. PRINTER-FRIENDLY REFERENCE SHEET
+   A printable version of all roles and tokens — a clean reference players
+   could print out. 
+   BLOCKED ON: need all the token images collected first (Scott to gather).
+   Once token art exists, add a 3rd button to the hamburger menu ("Print
+   Reference" or similar) that opens a print-formatted page of every role
+   and token with names + descriptions.
+
+2. REMAINING CHARACTER ANIMATIONS (43 left)
+   Pipeline proven with the Grinch. Generate clips via Kling (free daily
+   credits), Claude processes (watermark cover + seamless loop) and wires in.
+   Slow, gradual — one whenever you feel like it.
+
+3. CUSTOM DOMAIN
+   Point OneNightBeforeChristmas.com (or similar) at the existing Netlify
+   site. ~$10-12/year. 5-minute setup whenever desired.
+
+4. MULTIPLAYER COMPANION + MOBILE VOTING (big project — needs a backend)
+   Vision: a game code that other phones join. Each joined phone shows a cheat
+   sheet of the characters in THIS game, in wake order, then non-waking roles,
+   then the tokens in play — each tappable for its rule description.
+   Plus optional MOBILE VOTING (settings toggle by the host):
+     - Off = current behavior (timer just counts down).
+     - On = players enter name on join; during voting each name is a button to
+       vote for. Votes can be changed until time is up. Then 3-2-1 audio, then
+       results: who got the most votes, and (optional toggle) who voted for whom.
+     - Ties: timer re-runs with only the tied players votable.
+   TECH NOTE: this requires a real-time backend (e.g. Supabase/Firebase or a
+   small websocket server) — it's no longer a free static site. Scott's Reality
+   Fantasy stack (Next.js + Supabase + Vercel) is well suited to building this.

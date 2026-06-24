@@ -453,10 +453,3 @@ export function broadcastRoles(cheat, hostIsPlayer) {
   if (hostSession) hostSession.room.send("roles",
     { cheat, hostName: hostSession.hostName, hostIsPlayer: !!hostIsPlayer }, true);
 }
-
-// The host moved between games (ONBC <-> GAC). Tell joined players so their
-// phones follow into the same game. The live session/room is unchanged — only
-// which game screen everyone is looking at changes.
-export function broadcastGameSwitch(game) {
-  if (hostSession) hostSession.room.send("game_switch", { game }, true);
-}
