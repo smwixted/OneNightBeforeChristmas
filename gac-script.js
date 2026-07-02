@@ -1,21 +1,15 @@
 // The Grinches Attack Christmas — NIGHT NARRATION SCRIPT
-// Scott's original spoken narration, broken into discrete beats.
-// Each beat: { role, lines }. `role` ties the beat to a card id (or null for
-// universal beats that always play). The narrator skips beats whose role isn't
-// in tonight's selected game — except null-role beats, which always play.
-//
-// `role` uses the GAC_ROSTER ids. For multi-card roles we use the base concept:
-//   "Grinch"  -> any of Grinch1/2/3 selected
-//   "Wet"     -> Wet Bandits
-//   "Calvin"  -> Scott Calvin
-// The narrator's role-presence check (in index.html) maps these to selection.
+// Each beat: { role, lines }. A line is either a plain string, or an object
+// { text, decision } where `decision` is the key of an inline choice shown AFTER
+// that line (i.e. after the prompt, before "go to sleep"). `role` ties the beat
+// to a card concept; null = universal beat. The narrator skips beats whose role
+// isn't in the selected game.
 
-// ---- NIGHT 1 (full sequence) ----
 export const GAC_NIGHT1 = [
   { role: null,     lines: ["EVERYONE, go to sleep."] },
 
   { role: "Cupid",  lines: [
-    "CUPID, wake up. Choose two players to meet under the Mistletoe and fall in love.",
+    { text:"CUPID, wake up. Choose two players to meet under the Mistletoe and fall in love.", decision:"cupidLink" },
     "CUPID, go to sleep.",
     "If I tap your shoulder, wake up, and look for the other player with their eyes open.",
     "You two are now in love, so if one of you die, so does the other.",
@@ -26,81 +20,76 @@ export const GAC_NIGHT1 = [
     "SANTA CLAUS, put your thumb away. SCOTT CALVIN, go to sleep." ] },
 
   { role: "Wet",    lines: [
-    "WET BANDITS, wake up. You may steal the center card or another player's card and look at it.",
+    { text:"WET BANDITS, wake up. You may steal the center card or another player's card and look at it.", decision:"wetSteal" },
     "If you steal a card, put the Wet Bandit card in the center.",
     "If you stole another player's card, give them the center card.",
     "WET BANDITS, go to sleep." ] },
 
-  // Universal card-check beat (only meaningful if Wet Bandits are in play; the
-  // narrator includes it whenever Wet Bandits are selected — see index.html).
   { role: "Wet",    lines: [
-    "EVERYONE, wake up and quietly check your card, then go back to sleep." ] },
+    "EVERYONE, wake up and quietly check your card, then go back to sleep. If your card has changed, you are now that new role." ] },
 
   { role: "Shelf",  lines: [
-    "ELF ON THE SHELF, wake up. Who would you like to protect tonight?",
+    { text:"ELF ON THE SHELF, wake up. Who would you like to protect tonight?", decision:"protect" },
     "ELF ON THE SHELF, go to sleep." ] },
 
   { role: "Grinch", lines: [
-    "GRINCHES, wake up. Who would you like to kill tonight?",
+    { text:"GRINCHES, wake up. Who would you like to kill tonight?", decision:"grinchKill" },
     "GRINCHES, go to sleep." ] },
 
   { role: "Krampus", lines: [
-    "KRAMPUS, wake up. Would you like to turn this victim into a Grinch?",
+    { text:"KRAMPUS, wake up. Would you like to turn this victim into a Grinch?", decision:"krampusConvert" },
     "KRAMPUS, go to sleep." ] },
 
   { role: "Mrs",    lines: [
-    "MRS. CLAUS, wake up. Would you like to save this person with a nice gingerbread cookie?",
-    "Would you like to poison anyone with a not-so-nice gingerbread cookie?",
+    { text:"MRS. CLAUS, wake up. Would you like to save this person with a nice gingerbread cookie?", decision:"mrsSave" },
+    { text:"Would you like to poison anyone with a not-so-nice gingerbread cookie?", decision:"mrsPoison" },
     "MRS. CLAUS, go to sleep." ] },
 
   { role: "Santa",  lines: [
-    "SANTA CLAUS, wake up. Which player would you like to know if they are naughty or nice?",
+    { text:"SANTA CLAUS, wake up. Which player would you like to know if they are naughty or nice?", decision:"santaInspect" },
     "SANTA CLAUS, go to sleep." ] },
 
   { role: "Belsnickel", lines: [
-    "BELSNICKEL, wake up. Who do you believe is attacking Christmas and would like to kill?",
+    { text:"BELSNICKEL, wake up. Who do you believe is attacking Christmas and would like to kill?", decision:"belsnickelKill" },
     "BELSNICKEL, go to sleep." ] },
 
   { role: "Buddy",  lines: [
-    "BUDDY THE ELF, wake up. Would you like to switch two players' seats tonight?",
+    { text:"BUDDY THE ELF, wake up. Would you like to switch two players' seats tonight?", decision:"buddySwap" },
     "BUDDY THE ELF, go to sleep." ] },
 
-  { role: null,     lines: ["EVERYONE, wake up.", "Has anyone won yet?"] },
+  { role: null,     lines: ["EVERYONE, wake up."] },
 ];
 
-// ---- SUBSEQUENT NIGHTS (repeating loop) ----
-// Cupid, Scott Calvin intro, and Wet Bandits drop out. Scott Calvin gets a
-// one-time night-2 re-check if Wet Bandits were in the game (handled in code).
 export const GAC_NIGHTN = [
   { role: null,     lines: ["EVERYONE, go to sleep."] },
 
   { role: "Shelf",  lines: [
-    "ELF ON THE SHELF, wake up. Who would you like to protect tonight?",
+    { text:"ELF ON THE SHELF, wake up. Who would you like to protect tonight?", decision:"protect" },
     "ELF ON THE SHELF, go to sleep." ] },
 
   { role: "Grinch", lines: [
-    "GRINCHES, wake up. Who would you like to kill tonight?",
+    { text:"GRINCHES, wake up. Who would you like to kill tonight?", decision:"grinchKill" },
     "GRINCHES, go to sleep." ] },
 
   { role: "Krampus", lines: [
-    "KRAMPUS, wake up. Would you like to turn this victim into a Grinch?",
+    { text:"KRAMPUS, wake up. Would you like to turn this victim into a Grinch?", decision:"krampusConvert" },
     "KRAMPUS, go to sleep." ] },
 
   { role: "Mrs",    lines: [
-    "MRS. CLAUS, wake up. Would you like to save this person with a nice gingerbread cookie?",
-    "Would you like to poison anyone with a not-so-nice gingerbread cookie?",
+    { text:"MRS. CLAUS, wake up. Would you like to save this person with a nice gingerbread cookie?", decision:"mrsSave" },
+    { text:"Would you like to poison anyone with a not-so-nice gingerbread cookie?", decision:"mrsPoison" },
     "MRS. CLAUS, go to sleep." ] },
 
   { role: "Santa",  lines: [
-    "SANTA CLAUS, wake up. Which player would you like to know if they are naughty or nice?",
+    { text:"SANTA CLAUS, wake up. Which player would you like to know if they are naughty or nice?", decision:"santaInspect" },
     "SANTA CLAUS, go to sleep." ] },
 
   { role: "Belsnickel", lines: [
-    "BELSNICKEL, wake up. Who do you believe is attacking Christmas and would like to kill?",
+    { text:"BELSNICKEL, wake up. Who do you believe is attacking Christmas and would like to kill?", decision:"belsnickelKill" },
     "BELSNICKEL, go to sleep." ] },
 
   { role: "Buddy",  lines: [
-    "BUDDY THE ELF, wake up. Would you like to switch two players' seats tonight?",
+    { text:"BUDDY THE ELF, wake up. Would you like to switch two players' seats tonight?", decision:"buddySwap" },
     "BUDDY THE ELF, go to sleep." ] },
 
   { role: null,     lines: ["EVERYONE, wake up."] },

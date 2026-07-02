@@ -387,6 +387,17 @@ export async function startSession({ hostName, onPlayersChanged, onVoteFromPlaye
       if (type === "vote_clear" && hostSession && hostSession.voteSession)
         hostSession.voteSession.clearVote(payload.voter);
       if (type === "want_host" && onVoteFromPlayer) { /* reserved for future host-handoff */ }
+      // A player's GAC decision comes back here; route to whoever's waiting.
+      if (type === "gac_choice" && hostSession && hostSession.onGacChoice)
+        hostSession.onGacChoice(payload);
+      if (type === "gac_cardpick" && hostSession && hostSession.onGacCardPick)
+        hostSession.onGacCardPick(payload);
+      if ((type === "gac_wheel_drag" || type === "gac_wheel_ready") && hostSession && hostSession.onGacWheelInput)
+        hostSession.onGacWheelInput(type, payload);
+      if (type === "gac_nudge_reply" && hostSession && hostSession.onGacNudgeReply)
+        hostSession.onGacNudgeReply(payload);
+      if (type === "gac_peek" && hostSession && hostSession.onGacPeek)
+        hostSession.onGacPeek(payload);
     },
   });
   // Players present, deduped by name (presence can list a reconnecting phone
@@ -459,4 +470,63 @@ export function broadcastRoles(cheat, hostIsPlayer) {
 // which game screen everyone is looking at changes.
 export function broadcastGameSwitch(game) {
   if (hostSession) hostSession.room.send("game_switch", { game }, true);
+}
+
+// ============================================================
+// GAC per-phone decision routing
+// ============================================================
+
+// Send a decision prompt to ONE player (by name). Returns nothing; the player's
+// reply arrives via the onGacChoice handler registered with onGacChoice().
+export function gacSendPrompt(playerName, prompt) {
+  if (hostSession) hostSession.room.send("gac_prompt", { ...prompt, _to: playerName }, true);
+}
+// Send a waiting message to everyone (e.g. "night in progress").
+export function gacBroadcastWait(msg) {
+  if (hostSession) hostSession.room.send("gac_wait", { msg }, true);
+}
+// Send a private info result to one player (e.g. Santa's naughty/nice reveal).
+export function gacSendInfo(playerName, info) {
+  if (hostSession) hostSession.room.send("gac_info", { ...info, _to: playerName }, true);
+}
+// Clear GAC prompts (back to waiting screen) for everyone.
+export function gacBroadcastClear() {
+  if (hostSession) hostSession.room.send("gac_clear", {}, true);
+}
+// "Are you still there?" nudge for a player who's been waiting a while on a
+// decision — shown as a non-intrusive banner on their phone that doesn't
+// disturb whatever screen they're already looking at.
+export function gacSendNudge(playerName) {
+  if (hostSession) hostSession.room.send("gac_nudge", { _to: playerName }, true);
+}
+// Register the host's handler for a player tapping "I'm here" in reply.
+export function onGacNudgeReply(fn) {
+  if (hostSession) hostSession.onGacNudgeReply = fn;
+}
+// Register the host's handler for a player peeking at their dealt card.
+export function onGacPeek(fn) {
+  if (hostSession) hostSession.onGacPeek = fn;
+}
+// Register the host's handler for player choices coming back.
+export function onGacChoice(fn) {
+  if (hostSession) hostSession.onGacChoice = fn;
+}
+
+// ---- Card selection at game start ----
+export function gacSendCardPick(prompt) {
+  if (hostSession) hostSession.room.send("gac_pickcard", prompt, true);
+}
+export function onGacCardPick(fn) {
+  if (hostSession) hostSession.onGacCardPick = fn;
+}
+
+// ---- Grinch wheel ----
+export function gacStartWheel(payload) {
+  if (hostSession) hostSession.room.send("gac_wheel", payload, true);
+}
+export function gacUpdateWheel(payload) {
+  if (hostSession) hostSession.room.send("gac_wheel_state", payload, true);
+}
+export function onGacWheelInput(fn) {
+  if (hostSession) hostSession.onGacWheelInput = fn;
 }

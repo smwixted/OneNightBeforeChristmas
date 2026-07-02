@@ -16,10 +16,16 @@
 
 import { configured, joinRoom, createVoteSession,
          saveSession, loadSession, clearSession,
-         startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch }
-  from "./multiplayer.js?v=73";
+         startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch,
+         gacSendPrompt, gacBroadcastWait, gacSendInfo, gacBroadcastClear, onGacChoice,
+         gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
+         gacSendNudge, onGacNudgeReply, onGacPeek }
+  from "./multiplayer.js?v=77";
 
-export { configured, startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch };
+export { configured, startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch,
+         gacSendPrompt, gacBroadcastWait, gacSendInfo, gacBroadcastClear, onGacChoice,
+         gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
+         gacSendNudge, onGacNudgeReply, onGacPeek };
 
 // ---- tiny DOM helpers ----
 const el = (tag, props = {}, kids = []) => {
@@ -49,6 +55,12 @@ function ensureStyles() {
     overflow-y:auto;padding:20px;box-sizing:border-box}
   .mpLayer.show{display:block}
   .mpWrap{max-width:520px;margin:0 auto;text-align:center}
+  .mpNudgeBanner{position:fixed;left:0;right:0;bottom:0;z-index:9500;display:none;
+    background:#b3261e;color:#fff;padding:14px 18px;text-align:center;
+    font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:16px;
+    box-shadow:0 -4px 16px rgba(0,0,0,.5);align-items:center;justify-content:center;gap:12px;flex-wrap:wrap}
+  .mpNudgeBanner.show{display:flex}
+  .mpNudgeBanner .mpBtn{margin:0;min-width:0;padding:8px 16px;font-size:16px}
   .mpCode{font-family:"GingerbreadFont",cursive;font-size:48px;letter-spacing:6px;font-weight:normal;color:#f3c969;margin:6px 0}
   .mpTimer{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:64px;font-weight:normal;color:#f3c969;line-height:1}
   .mpH{font-family:"GingerbreadFont",cursive;font-size:26px;letter-spacing:1.5px;margin:14px 0 6px;color:var(--frost,#cfe0ea)}
@@ -56,6 +68,36 @@ function ensureStyles() {
   .mpBtn{font-family:"GingerbreadFont",cursive;font-size:20px;letter-spacing:1px;padding:12px 22px;border:none;border-radius:8px;
     background:rgba(255,255,255,.92);color:#1f6f1f;font-weight:normal;cursor:pointer;margin:6px;min-width:120px}
   .mpBtn.alt{background:#cfe0ea}
+  .mpGacBtns{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;margin:10px 0}
+  .mpBtn.gac{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:19px;min-width:90px;margin:0;
+    padding:14px 18px;background:#fff;color:#0f2c3d;border:2px solid rgba(255,255,255,.6);box-shadow:0 2px 6px rgba(0,0,0,.3)}
+  .mpBtn.gac.full{flex:1 1 100%;width:100%}
+  .mpGacBreak{flex:1 1 100%;height:8px}
+  .mpBtn.gac.sel{background:#1f7a1f;color:#fff;border-color:#bfffbf;box-shadow:0 0 14px rgba(150,255,150,.6)}
+  .mpBtn.gac.dis{opacity:.32;pointer-events:none}
+  .mpBtn.gacConfirm{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:20px;background:darkgreen;color:#fff;
+    margin-top:14px;padding:14px 30px}
+  .mpGacResult{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:22px;margin:16px 0;padding:14px;
+    border-radius:12px;background:rgba(0,50,0,.5);border:1px solid rgba(255,255,255,.3);color:#eafff0}
+  .mpCardGrid{display:flex;flex-wrap:wrap;gap:10px;justify-content:center;margin:12px 0;max-height:54vh;overflow-y:auto}
+  .mpViewCard{width:200px;max-width:70vw;margin:16px auto;aspect-ratio:5/7;position:relative;user-select:none;-webkit-user-select:none;touch-action:none}
+  .mpCardBack{position:absolute;inset:0;border-radius:16px;cursor:pointer;overflow:hidden;
+    background:linear-gradient(145deg,#0b5a24,#083d18) center/cover no-repeat;border:3px solid #ffd24d;
+    display:flex;align-items:flex-end;justify-content:center;box-shadow:0 6px 18px rgba(0,0,0,.5)}
+  .mpCardBackInner{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;color:#fff;text-align:center;font-size:16px;line-height:1.4;
+    width:100%;padding:8px 4px;background:rgba(0,0,0,.55)}
+  .mpCardBackInner small{font-size:12px;opacity:.85}
+  .mpCardFace{position:absolute;inset:0;border-radius:16px;overflow:hidden;border:3px solid #ffd24d;box-shadow:0 6px 18px rgba(0,0,0,.5);background:#000}
+  .mpCardFace img{width:100%;height:100%;object-fit:cover;display:block}
+  .mpCardFaceName{position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,.7);color:#fff;
+    font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:18px;text-align:center;padding:6px}
+  .mpCard{width:88px;border-radius:10px;overflow:hidden;border:3px solid transparent;background:rgba(0,0,0,.3);cursor:pointer}
+  .mpCard img{width:100%;display:block}
+  .mpCard.sel{border-color:#bfffbf;box-shadow:0 0 14px rgba(150,255,150,.7)}
+  .mpCardCap{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:13px;color:#fff;text-align:center;padding:4px 2px}
+  .mpWheelHolder{margin:10px auto;width:min(86vw,300px)}
+  #mpWheelSvg{width:100%;touch-action:none;cursor:grab}
+  .mpWheelStatus{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:18px;color:#fff;margin:8px 0;line-height:1.5}
   .mpInput{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:24px;padding:12px;border-radius:10px;border:2px solid #cfe0ea;
     width:80%;max-width:300px;text-align:center}
   .mpList{list-style:none;padding:0;margin:14px 0;text-align:left}
@@ -451,6 +493,25 @@ export function startPlayerClient(code) {
   let wrap = el("div", { className: "mpWrap" });
   layer.innerHTML = ""; layer.append(wrap);
 
+  // A "still here?" nudge banner, appended as a SIBLING of wrap (not inside
+  // it) so it survives wrap.innerHTML resets — it can show up over whatever
+  // screen the player's currently looking at without disturbing it, and
+  // disappears again once they tap it or the host moves on.
+  const nudgeBanner = el("div", { className: "mpNudgeBanner" });
+  layer.append(nudgeBanner);
+  function showNudge(){
+    nudgeBanner.innerHTML = "";
+    nudgeBanner.append(el("span", { textContent: "🌙 Still there? The night's waiting on you." }));
+    const btn = el("button", { className: "mpBtn gac", textContent: "I'm here!" });
+    btn.onclick = () => {
+      try { if (room) room.send("gac_nudge_reply", { from: myName }); } catch(_){}
+      hideNudge();
+    };
+    nudgeBanner.append(btn);
+    nudgeBanner.classList.add("show");
+  }
+  function hideNudge(){ nudgeBanner.classList.remove("show"); }
+
   let room = null, myName = null, cheatData = { wakeOrder:[], nonWaking:[], standaloneTokens:[], presentTokens:[] }, cheat = null, timerRaf = null, lastVoteMsg = null;
   let presentList = [], onWaitingScreen = false, hostIsPlayer = true, hostDisplayName = null;
 
@@ -473,8 +534,306 @@ export function startPlayerClient(code) {
     wrap.append(btn);
   }
 
+  // ===================== GAC per-phone decisions =====================
+  // The host sends a {key, label, kind, options, yes/no} prompt to the player
+  // who holds that role. The player taps, and we send back {key, value}.
+  // kind: "single" (pick one option), "yesno", "twopick" (two distinct options),
+  //       "info" (no input; e.g. Santa's confirm-then-reveal).
+  let gacPromptState = null;
+  function gacSend(value){
+    if (room) room.send("gac_choice", {
+      key: gacPromptState ? gacPromptState.key : null,
+      value,
+      from: myName,
+      grinchWheel: !!(gacPromptState && gacPromptState._grinchWheel),
+    });
+  }
+  function renderGacPrompt(p){
+    onWaitingScreen = false;
+    gacPromptState = p;
+    cancelAnimationFrame(timerRaf);
+    wrap.innerHTML = "";
+    wrap.append(el("div", { className: "mpH", textContent: p.title || "Your turn" }));
+    if (p.label) wrap.append(el("div", { className: "mpSub", innerHTML: p.label }));
+
+    const chosen = { v: (p.kind === "twopick") ? ["",""] : "" };
+
+    if (p.kind === "yesno"){
+      const row = el("div", { className: "mpGacBtns" });
+      [["", p.noText || "No"], ["yes", p.yesText || "Yes"]].forEach(([val, txt]) => {
+        const btn = el("button", { className: "mpBtn gac", textContent: txt });
+        if (val === "yes" && p.yesDisabled) { btn.disabled = true; btn.classList.add("dis"); }
+        btn.onclick = () => { if (btn.disabled) return; gacSelectSingle(row, btn); chosen.v = val; };
+        row.append(btn);
+      });
+      wrap.append(row);
+      addConfirm(() => gacSend(chosen.v));
+    } else if (p.kind === "single"){
+      const row = el("div", { className: "mpGacBtns" });
+      (p.options || []).forEach(o => {
+        if (o.section){ row.append(el("div", { className:"mpGacBreak" })); return; }
+        const btn = el("button", { className: "mpBtn gac" + (o.full ? " full" : ""), textContent: o.text });
+        btn.onclick = () => { gacSelectSingle(row, btn); chosen.v = o.value; };
+        row.append(btn);
+      });
+      wrap.append(row);
+      addConfirm(() => gacSend(chosen.v));
+    } else if (p.kind === "twopick"){
+      wrap.append(el("div", { className: "mpSub", textContent: "Pick two different players." }));
+      const rowA = el("div", { className: "mpGacBtns" });
+      const rowB = el("div", { className: "mpGacBtns" });
+      const paint = () => {
+        [...rowA.children].forEach(b => b.classList.toggle("dis", b.dataset.v && b.dataset.v === chosen.v[1]));
+        [...rowB.children].forEach(b => b.classList.toggle("dis", b.dataset.v && b.dataset.v === chosen.v[0]));
+        [...rowA.children].forEach(b => b.classList.toggle("sel", b.dataset.v === chosen.v[0]));
+        [...rowB.children].forEach(b => b.classList.toggle("sel", b.dataset.v === chosen.v[1]));
+      };
+      (p.options || []).forEach(o => {
+        const a = el("button", { className:"mpBtn gac", textContent:o.text }); a.dataset.v = o.value;
+        a.onclick = () => { if (a.classList.contains("dis")) return; chosen.v[0] = (chosen.v[0]===o.value?"":o.value); paint(); };
+        rowA.append(a);
+        const b = el("button", { className:"mpBtn gac", textContent:o.text }); b.dataset.v = o.value;
+        b.onclick = () => { if (b.classList.contains("dis")) return; chosen.v[1] = (chosen.v[1]===o.value?"":o.value); paint(); };
+        rowB.append(b);
+      });
+      wrap.append(el("div",{className:"mpSub",style:"margin:6px 0 2px",textContent:"First:"}));
+      wrap.append(rowA);
+      wrap.append(el("div",{className:"mpSub",style:"margin:6px 0 2px",textContent:"Second:"}));
+      wrap.append(rowB);
+      paint();
+      addConfirm(() => gacSend((chosen.v[0] && chosen.v[1] && chosen.v[0]!==chosen.v[1]) ? chosen.v : ""));
+    } else if (p.kind === "info"){
+      // Santa-style: confirm to reveal. We send the choice, host replies gac_info.
+      addConfirm(() => gacSend(p.value || ""));
+    }
+  }
+  function gacSelectSingle(row, btn){
+    [...row.querySelectorAll(".mpBtn")].forEach(b => b.classList.remove("sel"));
+    btn.classList.add("sel");
+  }
+  function addConfirm(fn){
+    const c = el("button", { className: "mpBtn gacConfirm", textContent: "Confirm ▶" });
+    c.onclick = () => {
+      c.disabled = true; c.textContent = "Sent ✓";
+      // Lock the whole prompt so they can't change it after submitting.
+      [...wrap.querySelectorAll(".mpBtn.gac")].forEach(b => { b.disabled = true; b.classList.add("dis"); });
+      gacPromptState = null;
+      fn();
+    };
+    wrap.append(c);
+  }
+  let onResultScreen = false;   // true while showing an unread private result (e.g. Santa's check)
+  function gacWait(msg){
+    if (onResultScreen) return;   // don't clobber an unread result with a filler "waiting" screen
+    onWaitingScreen = false;
+    wrap.innerHTML = "";
+    wrap.append(el("div", { className: "mpH", textContent: `Hi ${myName}!` }));
+    wrap.append(el("div", { className: "mpSub", textContent: msg || "Waiting for the host…" }));
+  }
+  let myCard = null;   // {name, image, desc} — the player's current role card
+  function gacInfo(p){
+    // A dealt-card assignment (virtual deal) — store it and show the waiting
+    // screen with a persistent "View My Card" peek button.
+    if (p && p.yourCard){
+      myCard = { name: p.name, image: p.image, desc: p.desc || "" };
+      gacPeekReported = false;   // fresh card → they haven't peeked at this one yet
+      waiting("You've been dealt your card. Hold/hover to view your role.");
+      return;
+    }
+    // A private result for this player (e.g. Santa's naughty/nice). Stays on
+    // screen until they tap "Got it" — later filler updates (the host moving
+    // on to the next beat) won't be allowed to clobber it first.
+    onResultScreen = true;
+    wrap.innerHTML = "";
+    wrap.append(el("div", { className: "mpH", textContent: p.title || "Result" }));
+    wrap.append(el("div", { className: "mpGacResult", innerHTML: p.html || p.text || "" }));
+    const ok = el("button", { className: "mpBtn gac", textContent: "Got it" });
+    ok.onclick = () => { onResultScreen = false; gacWait("Waiting for the host…"); };
+    wrap.append(ok);
+  }
+  // Build the press-and-hold "View My Card" control (card-back reveals on hold).
+  let gacPeekReported = false;
+  function gacReportPeek(){
+    if (gacPeekReported) return;
+    gacPeekReported = true;
+    try { if (room) room.send("gac_peek", { from: myName }); } catch(_){}
+  }
+  function gacViewCardControl(){
+    if (!myCard) return null;
+    const holder = el("div", { className: "mpViewCard" });
+    const back = el("div", { className: "mpCardBack", style: "background-image:url('CardBacks/GAC_Back.png')" });
+    back.innerHTML = ``;
+    const face = el("div", { className: "mpCardFace" });
+    face.innerHTML = `<img src="${myCard.image}" alt="${myCard.name}"><div class="mpCardFaceName">${myCard.name}</div>`;
+    face.style.display = "none";
+    holder.append(back, face);
+    const show = (e) => { face.style.display = "block"; back.style.display = "none"; gacReportPeek(); if(e&&e.preventDefault)e.preventDefault(); };
+    const hide = () => { face.style.display = "none"; back.style.display = "block"; };
+    back.addEventListener("mousedown", show); back.addEventListener("touchstart", show, {passive:false});
+    window.addEventListener("mouseup", hide); window.addEventListener("touchend", hide);
+    face.addEventListener("mouseup", hide); face.addEventListener("touchend", hide);
+    // Desktop hover to reveal (releases on leave).
+    back.addEventListener("mouseenter", show); face.addEventListener("mouseleave", hide);
+    return holder;
+  }
+
+  // ---- Card selection at game start ----
+  // payload.cards = [{id, name, image}]; player taps the card they were dealt.
+  function gacCardPickSend(cardId){ if (room) room.send("gac_cardpick", { from: myName, cardId }); }
+  function renderGacCardPick(p){
+    onWaitingScreen = false;
+    wrap.innerHTML = "";
+    if (p.redo){
+      wrap.append(el("div", { className: "mpH", textContent: "Re-check your card!" }));
+      wrap.append(el("div", { className: "mpSub", innerHTML: `<span style="color:#ffd6d6">${p.reason || "The cards didn't match — please confirm again."}</span>` }));
+    } else {
+      wrap.append(el("div", { className: "mpH", textContent: "Which card were you dealt?" }));
+      wrap.append(el("div", { className: "mpSub", textContent: "Tap your character to confirm." }));
+    }
+    const grid = el("div", { className: "mpCardGrid" });
+    let chosen = null;
+    (p.cards || []).forEach(c => {
+      const card = el("div", { className: "mpCard" });
+      const img = el("img"); img.src = c.image; img.alt = c.name;
+      const cap = el("div", { className: "mpCardCap", textContent: c.name });
+      card.append(img, cap);
+      card.onclick = () => {
+        chosen = c.id;
+        [...grid.querySelectorAll(".mpCard")].forEach(x => x.classList.remove("sel"));
+        card.classList.add("sel");
+        confirmBtn.disabled = false; confirmBtn.classList.remove("dis");
+      };
+      grid.append(card);
+    });
+    wrap.append(grid);
+    const confirmBtn = el("button", { className: "mpBtn gacConfirm dis", textContent: "Confirm Card" });
+    confirmBtn.disabled = true;
+    confirmBtn.onclick = () => {
+      if (!chosen) return;
+      confirmBtn.disabled = true; confirmBtn.textContent = "Locked in ✓";
+      [...grid.querySelectorAll(".mpCard")].forEach(x => x.style.pointerEvents = "none");
+      gacCardPickSend(chosen);
+    };
+    wrap.append(confirmBtn);
+  }
+
+  // ---- Grinch wheel (shared spinner, Wavelength-style) ----
+  // payload: {players:[grinchNames], targets:[{id,name}], angle, ready:{name:bool}}
+  let gacWheelData = null;
+  function gacWheelSend(type, extra){ if (room) room.send(type, { from: myName, ...(extra||{}) }); }
+  function renderGacWheel(p){
+    onWaitingScreen = false;
+    gacWheelData = p;
+    wrap.innerHTML = "";
+    wrap.append(el("div", { className: "mpH", textContent: "Grinches, choose your victim" }));
+    wrap.append(el("div", { className: "mpSub", textContent: "Drag the pointer together. Everyone taps Ready to lock it in." }));
+    const holder = el("div", { className: "mpWheelHolder" });
+    holder.id = "mpWheelHolder";
+    holder.innerHTML = gacWheelSVG(p);
+    wrap.append(holder);
+    const status = el("div", { className: "mpWheelStatus" }); status.id = "mpWheelStatus";
+    wrap.append(status);
+    const ready = el("button", { className: "mpBtn gacConfirm", textContent: "Ready" });
+    ready.id = "mpWheelReady";
+    ready.onclick = () => {
+      const me = (p.ready && p.ready[myName]);
+      gacWheelSend("gac_wheel_ready", { ready: !me });
+    };
+    wrap.append(ready);
+    gacWheelAttachDrag(holder);
+    updateGacWheel(p);
+  }
+  function gacWheelSVG(p){
+    const n = p.targets.length;
+    const cx=130, cy=130, r=120;
+    let wedges = "";
+    for (let i=0;i<n;i++){
+      const a0 = (i/n)*2*Math.PI - Math.PI/2, a1 = ((i+1)/n)*2*Math.PI - Math.PI/2;
+      const x0=cx+r*Math.cos(a0), y0=cy+r*Math.sin(a0), x1=cx+r*Math.cos(a1), y1=cy+r*Math.sin(a1);
+      const mid=(a0+a1)/2, lx=cx+(r*0.62)*Math.cos(mid), ly=cy+(r*0.62)*Math.sin(mid);
+      // Candy-cane: alternating red and white wedges.
+      const isRed = (i%2===0);
+      const fill = isRed ? "#c0211a" : "#ffffff";
+      const textColor = isRed ? "#ffffff" : "#7a0d0a";
+      wedges += `<path d="M${cx},${cy} L${x0},${y0} A${r},${r} 0 0 1 ${x1},${y1} Z" fill="${fill}" stroke="rgba(0,0,0,.25)" stroke-width="1.5"/>`;
+      const nm = (p.targets[i].name||"").slice(0,8);
+      wedges += `<text x="${lx}" y="${ly}" fill="${textColor}" font-size="13" font-weight="bold" text-anchor="middle" dominant-baseline="middle" font-family="Trebuchet MS,Arial" transform="rotate(${(mid*180/Math.PI)+90},${lx},${ly})">${nm}</text>`;
+    }
+    return `<svg viewBox="0 0 260 260" id="mpWheelSvg">
+      ${wedges}
+      <circle cx="130" cy="130" r="${r}" fill="none" stroke="rgba(0,0,0,.3)" stroke-width="2"/>
+      <g id="mpWheelPointer">
+        <line x1="130" y1="130" x2="130" y2="18" stroke="#1f9e3a" stroke-width="7" stroke-linecap="round"/>
+        <polygon points="130,10 122,26 138,26" fill="#1f9e3a"/>
+        <circle cx="130" cy="130" r="15" fill="#1f9e3a" stroke="#fff" stroke-width="2"/>
+      </g></svg>`;
+  }
+  function gacWheelAttachDrag(holder){
+    const svg = holder.querySelector("#mpWheelSvg");
+    const center = () => { const rc = svg.getBoundingClientRect(); return { x: rc.left+rc.width/2, y: rc.top+rc.height/2 }; };
+    let dragging = false;
+    let lastSend = 0, pendingAngle = null, sendTimer = null;
+    const angleFrom = (clientX, clientY) => {
+      const c = center();
+      let a = Math.atan2(clientY - c.y, clientX - c.x) * 180/Math.PI + 90;
+      return ((a % 360) + 360) % 360;   // normalize 0..360
+    };
+    // Throttle to ~15/sec so fast spinning can't flood the realtime channel.
+    const flush = () => {
+      sendTimer = null;
+      if (pendingAngle == null) return;
+      lastSend = Date.now();
+      gacWheelSend("gac_wheel_drag", { angle: pendingAngle });
+      pendingAngle = null;
+    };
+    const move = (clientX, clientY) => {
+      if (gacWheelData && gacWheelData.locked) return;
+      pendingAngle = angleFrom(clientX, clientY);
+      const dt = Date.now() - lastSend;
+      if (dt >= 66){ flush(); }
+      else if (!sendTimer){ sendTimer = setTimeout(flush, 66 - dt); }
+    };
+    const down = (e) => { dragging = true; const t=e.touches?e.touches[0]:e; move(t.clientX,t.clientY); e.preventDefault(); };
+    const mv   = (e) => { if(!dragging) return; const t=e.touches?e.touches[0]:e; move(t.clientX,t.clientY); e.preventDefault(); };
+    const up   = () => { dragging = false; flush(); };   // ensure final position is sent
+    svg.addEventListener("mousedown", down); svg.addEventListener("touchstart", down, {passive:false});
+    window.addEventListener("mousemove", mv); window.addEventListener("touchmove", mv, {passive:false});
+    window.addEventListener("mouseup", up); window.addEventListener("touchend", up);
+  }
+  function updateGacWheel(p){
+    if (p) gacWheelData = Object.assign(gacWheelData||{}, p);
+    const d = gacWheelData; if (!d) return;
+    const ptr = document.getElementById("mpWheelPointer");
+    if (ptr) ptr.setAttribute("transform", `rotate(${d.angle||0},130,130)`);
+    const status = document.getElementById("mpWheelStatus");
+    if (status){
+      const names = d.players||[];
+      const readyCount = names.filter(n => d.ready && d.ready[n]).length;
+      const tgt = gacWheelTargetName(d);
+      status.innerHTML = `Pointing at: <b>${tgt||"…"}</b><br>${readyCount}/${names.length} ready`;
+    }
+    const rb = document.getElementById("mpWheelReady");
+    if (rb){
+      const me = d.ready && d.ready[myName];
+      rb.textContent = me ? "Ready ✓ (tap to undo)" : "Ready";
+      rb.classList.toggle("sel", !!me);
+    }
+    if (d.locked){
+      const rb2 = document.getElementById("mpWheelReady");
+      if (rb2){ rb2.disabled = true; rb2.textContent = "Locked in ✓"; }
+    }
+  }
+  function gacWheelTargetName(d){
+    if (!d || !d.targets || !d.targets.length) return "";
+    let a = ((d.angle||0) % 360 + 360) % 360;
+    const n = d.targets.length;
+    const idx = Math.floor((a / 360) * n) % n;
+    return d.targets[idx] ? d.targets[idx].name : "";
+  }
+
   let waitingMsg = "Waiting for the host to start voting…";
   function waiting(msg) {
+    if (onResultScreen) return;   // don't clobber an unread result
     if (msg) waitingMsg = msg;
     onWaitingScreen = true;
     if (cheat) cheat.showBtn();
@@ -482,6 +841,10 @@ export function startPlayerClient(code) {
     wrap.innerHTML = "";
     wrap.append(el("div", { className: "mpH", textContent: `Hi ${myName}!` }));
     wrap.append(el("div", { className: "mpSub", textContent: waitingMsg }));
+
+    // Persistent "View My Card" peek (virtual deal) — hold to reveal.
+    const vc = gacViewCardControl();
+    if (vc) wrap.append(vc);
 
     // List of everyone in the room. The host only appears if they're playing.
     const shown = presentList.filter(p => p.role !== "host" || hostIsPlayer);
@@ -554,6 +917,29 @@ export function startPlayerClient(code) {
           if (type === "vote_aborted") waiting("The host cancelled the vote. Waiting for the next game…");
           if (type === "vote_results") renderResults(payload);
           if (type === "session_ended") sessionEnded();
+          // ----- GAC (Grinches Attack Christmas) per-phone decisions -----
+          if (type === "gac_prompt"){
+            hideNudge();
+            if (!payload._to || payload._to === myName) renderGacPrompt(payload);
+            else gacWait("Night in progress…");
+          }
+          if (type === "gac_wait")   { hideNudge(); gacWait(payload && payload.msg); }
+          if (type === "gac_info"){
+            if (!payload._to || payload._to === myName) { hideNudge(); gacInfo(payload); }
+          }
+          if (type === "gac_clear")  { hideNudge(); waiting(); }
+          // "Are you still there?" — a light banner over whatever's on screen.
+          if (type === "gac_nudge"){
+            if (!payload._to || payload._to === myName) showNudge();
+          }
+          // Card-selection at game start.
+          if (type === "gac_pickcard") { hideNudge(); renderGacCardPick(payload); }
+          // Grinch wheel (shared spinner).
+          if (type === "gac_wheel"){
+            if (payload.players && payload.players.some(n => n === myName)) { hideNudge(); renderGacWheel(payload); }
+            else gacWait("Night in progress…");
+          }
+          if (type === "gac_wheel_state") updateGacWheel(payload);
         },
       });
       setupCheat();
