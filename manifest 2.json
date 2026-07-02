@@ -1,0 +1,14 @@
+{
+  "name": "One Night Before Christmas",
+  "short_name": "ONBC",
+  "description": "The companion app for the One Night Before Christmas party game.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0b1e2d",
+  "theme_color": "#0b1e2d",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" }
+  ]
+}
