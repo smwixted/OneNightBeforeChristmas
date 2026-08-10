@@ -159,8 +159,11 @@ export async function createRoom({ name, onPresence, onMessage }) {
 // what the host broadcasts and send taps back.
 // ============================================================
 
-export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast, allowCheat, votingEnabled, getPresentPlayers, audioEl, onState, onCallout }) {
+export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast, allowCheat, votingEnabled, getPresentPlayers, audioEl, onState, onCallout, eligibleVoters }) {
   const voting = votingEnabled !== false;   // default true for back-compat
+  // Optional whitelist of voter names (e.g. living GAC players). Null = anyone.
+  const eligibleSet = (eligibleVoters && eligibleVoters.length)
+    ? new Set(eligibleVoters.map(n => (n||"").trim())) : null;
   let firedMinute = false, firedThirty = false;
   // The single most important data structure: votes as a KEYED MAP.
   //   { "Kyle": "Sam", "Pat": "Sam", "Sam": "Pat" }
@@ -169,16 +172,18 @@ export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast,
   // just counting the values.
   let votes = {};
   let state = "idle";
-  let endsAt = null;     // authoritative epoch-ms when the timer expires
+  let endsAt = null;     // authoritative epoch-ms when the timer expires (null in no-timer mode)
+  let noTimer = false;   // true = open-ended vote, no countdown
   let timerId = null;
   let endTimeout = null;
 
   function setState(s, extra = {}) {
     state = s;
-    if (onState) onState(s, { votes: { ...votes }, endsAt, ...extra });
+    if (onState) onState(s, { votes: { ...votes }, endsAt, noTimer, voterTotal: voterPool().length,
+      eligible: eligibleSet ? [...eligibleSet] : null, ...extra });
     // Broadcast running progress so every phone can show the count.
     if (s === "open" || s === "countdown") {
-      room.send("vote_progress", { voted: Object.keys(votes).length, total: openCandidates.length }, true);
+      room.send("vote_progress", { voted: Object.keys(votes).length, total: voterPool().length }, true);
     }
   }
 
@@ -186,8 +191,16 @@ export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast,
   // Checks against the candidate list locked in at open(), NOT live presence,
   // so a name mismatch or a late join can't stall the lock.
   let openCandidates = [];
+  // The set of people who are ALLOWED to vote. Prefer an explicit eligible list
+  // (GAC living players); otherwise fall back to the candidates themselves
+  // (ONBC, where voters and candidates are the same set).
+  function voterPool(){
+    if (eligibleSet && eligibleSet.size) return [...eligibleSet];
+    return openCandidates;
+  }
   function everyoneVoted() {
-    return openCandidates.length > 0 && openCandidates.every(n => votes[n] != null);
+    const pool = voterPool();
+    return pool.length > 0 && pool.every(n => votes[n] != null);
   }
 
   // ----- OPEN: start collecting -----
@@ -195,27 +208,34 @@ export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast,
     votes = {};
     firedMinute = false; firedThirty = false;
     openCandidates = [...new Set((candidateList || []).map(s => (s||"").trim()).filter(Boolean))];
-    endsAt = Date.now() + durationMs;
+    // durationMs == null (or <= 0) means NO TIMER: the vote stays open until
+    // everyone has voted or the host taps Vote Now. endsAt stays null so the
+    // UI shows no countdown and no time-based cues fire.
+    noTimer = (durationMs == null || durationMs <= 0);
+    endsAt = noTimer ? null : Date.now() + durationMs;
     // If the whole vote is 60s or less, the "1 minute" cue is irrelevant.
-    if (durationMs <= 60000) firedMinute = true;
-    room.send("vote_open", { candidates: openCandidates, endsAt, allowCheat: !!allowCheat, voting }, true);
+    if (noTimer || durationMs <= 60000) firedMinute = true;
+    room.send("vote_open", { candidates: openCandidates, endsAt, noTimer, allowCheat: !!allowCheat, voting,
+      eligible: eligibleSet ? [...eligibleSet] : null }, true);
     setState("open", { candidates: openCandidates });
 
     clearInterval(timerId);
     timerId = setInterval(tick, 250);
     clearTimeout(endTimeout);
-    // Hard backstop in case intervals are throttled while backgrounded.
-    endTimeout = setTimeout(() => { if (state === "open") beginCountdown(); }, durationMs + 400);
+    // Hard backstop in case intervals are throttled while backgrounded (timer mode only).
+    if (!noTimer) endTimeout = setTimeout(() => { if (state === "open") beginCountdown(); }, durationMs + 400);
   }
 
   function tick() {
     if (state !== "open") return;
-    const remain = endsAt - Date.now();
-    // Countdown audio reminders (fire on the host; broadcast so all phones hear).
-    if (!firedMinute && remain <= 60000){ firedMinute = true; doCallout("950_Minute.mp3"); }
-    if (!firedThirty && remain <= 30000){ firedThirty = true; doCallout("951_30Seconds.mp3"); }
-    if (Date.now() >= endsAt) return beginCountdown();   // timer ended
-    if (everyoneVoted()) return beginCountdown();         // everyone voted early
+    if (!noTimer){
+      const remain = endsAt - Date.now();
+      // Countdown audio reminders (fire on the host; broadcast so all phones hear).
+      if (!firedMinute && remain <= 60000){ firedMinute = true; doCallout("950_Minute.mp3"); }
+      if (!firedThirty && remain <= 30000){ firedThirty = true; doCallout("951_30Seconds.mp3"); }
+      if (Date.now() >= endsAt) return beginCountdown();   // timer ended
+    }
+    if (everyoneVoted()) return beginCountdown();           // everyone voted early
   }
 
   function doCallout(file){
@@ -229,6 +249,7 @@ export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast,
   function recordVote(voter, choice) {
     if (state !== "open" && state !== "countdown") return;
     voter = (voter||"").trim();
+    if (eligibleSet && !eligibleSet.has(voter)) return;   // eliminated / non-players can't vote
     votes[voter] = choice;                   // overwrite per voter
     setState(state, { candidates: openCandidates });
   }
@@ -313,6 +334,7 @@ export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast,
   // remaining time.
   let pausedRemaining = null;
   function pause() {
+    if (noTimer) return;              // no countdown to pause
     if (state !== "open" || pausedRemaining != null) return;
     pausedRemaining = Math.max(0, endsAt - Date.now());
     clearInterval(timerId); clearTimeout(endTimeout);
@@ -348,6 +370,7 @@ export function createVoteSession({ room, hostName, hostIsPlayer, showVotesCast,
     resume,
     isPaused,
     forceCountdown,
+    isNoTimer: () => noTimer,
     get state(){ return state; },
     get votes(){ return { ...votes }; },
   };
@@ -398,6 +421,18 @@ export async function startSession({ hostName, onPlayersChanged, onVoteFromPlaye
         hostSession.onGacNudgeReply(payload);
       if (type === "gac_peek" && hostSession && hostSession.onGacPeek)
         hostSession.onGacPeek(payload);
+      if (type === "gac_ack" && hostSession && hostSession.onGacAck)
+        hostSession.onGacAck(payload);
+      if (type === "gac_self_elim" && hostSession && hostSession.onGacSelfElim)
+        hostSession.onGacSelfElim(payload);
+      if (type === "gac_love_confirm" && hostSession && hostSession.onGacLoveConfirm)
+        hostSession.onGacLoveConfirm(payload);
+      if (type === "gac_share_results" && hostSession && hostSession.onGacShareResults)
+        hostSession.onGacShareResults(payload);
+      if (type === "gac_sam_nav" && hostSession && hostSession.onGacSamNav)
+        hostSession.onGacSamNav(payload);
+      if (type === "gac_sam_day" && hostSession && hostSession.onGacSamDay)
+        hostSession.onGacSamDay(payload);
     },
   });
   // Players present, deduped by name (presence can list a reconnecting phone
@@ -485,6 +520,31 @@ export function gacSendPrompt(playerName, prompt) {
 export function gacBroadcastWait(msg) {
   if (hostSession) hostSession.room.send("gac_wait", { msg }, true);
 }
+// Send a waiting message to everyone EXCEPT one player (that player is receiving
+// the night results instead). The excepted phone ignores this via _except.
+export function gacBroadcastWaitExcept(msg, exceptName) {
+  if (hostSession) hostSession.room.send("gac_wait", { msg, _except: exceptName }, true);
+}
+// Broadcast the day-phase summary (overnight deaths + who's in/out) to everyone.
+export function gacBroadcastSummary(summary) {
+  if (hostSession) hostSession.room.send("gac_summary", summary, true);
+}
+// Broadcast the "N/N have viewed their card" count to every phone.
+export function gacBroadcastPeekCount(info) {
+  if (hostSession) hostSession.room.send("gac_peekcount", info, true);
+}
+// Broadcast the "Everyone, go to sleep" screen at the start of each night.
+export function gacBroadcastSleep(night) {
+  if (hostSession) hostSession.room.send("gac_sleep", { night: night || null }, true);
+}
+// Broadcast a Cupid love-reveal update (per-player status or the running count).
+export function gacBroadcastLoveReveal(info) {
+  if (hostSession) hostSession.room.send("gac_love", info, true);
+}
+// Register the host handler for love-reveal confirmations from phones.
+export function onGacLoveConfirm(fn) {
+  if (hostSession) hostSession.onGacLoveConfirm = fn;
+}
 // Send a private info result to one player (e.g. Santa's naughty/nice reveal).
 export function gacSendInfo(playerName, info) {
   if (hostSession) hostSession.room.send("gac_info", { ...info, _to: playerName }, true);
@@ -506,6 +566,26 @@ export function onGacNudgeReply(fn) {
 // Register the host's handler for a player peeking at their dealt card.
 export function onGacPeek(fn) {
   if (hostSession) hostSession.onGacPeek = fn;
+}
+// Register the host's handler for a player acknowledging a result (e.g. Santa
+// tapping "Done" after seeing naughty/nice).
+export function onGacAck(fn) {
+  if (hostSession) hostSession.onGacAck = fn;
+}
+// Register the host's handler for a player self-eliminating (gimmick roles).
+export function onGacSelfElim(fn) {
+  if (hostSession) hostSession.onGacSelfElim = fn;
+}
+// Register the host's handler for Sam's remote narration nav (Next/Back).
+export function onGacSamNav(fn) {
+  if (hostSession) hostSession.onGacSamNav = fn;
+}
+export function onGacSamDay(fn) {
+  if (hostSession) hostSession.onGacSamDay = fn;
+}
+// Register the host's handler for a results-recipient tapping "share with all".
+export function onGacShareResults(fn) {
+  if (hostSession) hostSession.onGacShareResults = fn;
 }
 // Register the host's handler for player choices coming back.
 export function onGacChoice(fn) {

@@ -47,10 +47,10 @@ export const GAC_ROSTER = [
     desc: "May secretly peek while the Grinches are awake to catch them — but if they notice, they'll likely kill you." },
   { id: "Frost",      name: "Jack Frost",        image: "Roles_Active/Frost.jpg",      team: "christmas",
     desc: "If you're killed, you take one player of your choice down with you (resolved at the start of the next day)." },
-  { id: "Burger",     name: "Burgermeister Meisterburger", image: "Roles_Active/Burger.jpg", team: "christmas",
+  { id: "Burger",     name: "Burgermeister Meisterburger", image: "Roles_Active/GAC_Burger.jpg", team: "christmas",
     desc: "On the Christmas team, but you only win if the Grinches win and steal Christmas." },
   { id: "CharlieBrown", name: "Charlie Brown",   image: "Roles_Active/CharlieBrown.jpg", team: "christmas",
     desc: "If the day's vote ends in an exact tie, you are the one who dies." },
   { id: "Yukon",      name: "Yukon Cornelius",   image: "Roles_Active/Yukon.jpg",      team: "christmas",
-    desc: "You survive the very first attack made on you in the game. After that, you're as vulnerable as anyone." },
+    desc: "You survive the very first night attack made on you in the game. After that, you're as vulnerable as anyone. (A day vote still eliminates you.)" },
 ];

@@ -53,6 +53,11 @@ export const MUSIC = [
 
 export const VOTE_TIMERS = [
   {
+    "id": "NoTimer",
+    "ms": 0,
+    "label": "No Timer"
+  },
+  {
     "id": "OneMin",
     "ms": 60000,
     "label": "1 Minute"

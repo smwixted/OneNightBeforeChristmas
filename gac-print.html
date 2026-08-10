@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Print Characters — One Night Before Christmas</title>
+<title>Print Characters — Grinches Attack Christmas</title>
 <style>
   :root{ --christmas:#c0182a; --grinch:#1f6f1f; --neutral:#e07b1a; }
   *{box-sizing:border-box}
@@ -24,9 +24,9 @@
   h2.section{font-size:20px;margin:0 0 10px;border-bottom:2px solid #333;padding-bottom:4px}
 
   /* ---------- Rows are the unbreakable unit ----------
-     Each row of cards / tokens is a flex container that the browser keeps whole.
-     Breaking happens BETWEEN rows, never mid-row — this fixes the page 4→5 split. */
-  .cards,.tokens{margin-bottom:18px}
+     Each row of cards is a flex container the browser keeps whole. Breaking
+     happens BETWEEN rows, never mid-row. */
+  .cards{margin-bottom:18px}
   .row{display:flex;gap:8px;margin-bottom:8px;
     break-inside:avoid;page-break-inside:avoid;-webkit-column-break-inside:avoid}
 
@@ -42,25 +42,15 @@
     color:#fff;font-size:8.5px;line-height:1.15;padding:14px 5px 4px;text-align:center}
   .card .cname{display:block;font-weight:bold;font-size:9.5px;margin-bottom:1px}
 
-  /* Team badge: corner overlay, only in B&W mode. */
+  /* Team badge: corner overlay, only in B&W mode (colour carries the team in
+     colour mode; in B&W the badge marks the team explicitly). */
   .teamBadge{display:none}
   body.bw .teamBadge{display:block;position:absolute;top:4px;right:4px;
     width:26px;height:26px;object-fit:contain;z-index:2}
 
-  /* Token cut-out cell — fixed fifth width inside a 5-up row. */
-  .tok{flex:1 1 0;min-width:0;height:1.7in;
-    border:1px dashed #555;padding:6px 4px;text-align:center;
-    break-inside:avoid;page-break-inside:avoid;-webkit-column-break-inside:avoid}
-  .tok.spacer{visibility:hidden;border:none}
-  .tok img{width:0.95in;height:0.95in;object-fit:contain;display:block;margin:0 auto}
-  .tok .tname{font-size:8px;font-weight:bold;margin-top:2px;line-height:1.1}
-  .tok .tdesc{font-size:7.5px;line-height:1.15;margin-top:2px}
-  .tok .tcpt{font-size:7px;font-style:italic;color:#555;padding-top:3px}
-
   /* ----- Black & white mode ----- */
   body.bw .card{border:1px solid #000;background:#fff}
   body.bw .card .art{filter:grayscale(1) contrast(1.05)}
-  body.bw .tok img{filter:grayscale(1) contrast(1.05)}
   body.bw .card .cap{position:static;background:#fff;color:#000;
     border-top:1px solid #000;text-shadow:none;padding:4px 5px 6px}
 
@@ -74,29 +64,24 @@
     .page{box-shadow:none;margin:0;max-width:none;padding:0.3in}
     @page{size:letter;margin:0.3in}
     .row{break-inside:avoid;page-break-inside:avoid}
-    .card,.tok{break-inside:avoid;page-break-inside:avoid}
-    body.bw .card .art, body.bw .tok img{
+    .card{break-inside:avoid;page-break-inside:avoid}
+    body.bw .card .art{
       -webkit-filter:grayscale(1) contrast(1.05) !important;
       filter:grayscale(1) contrast(1.05) !important;
       -webkit-print-color-adjust:exact !important;
       print-color-adjust:exact !important;
     }
     h2.section{break-after:avoid;page-break-after:avoid}
-    /* Tokens always begin on a fresh page so the heading is never stranded
-       at the bottom of a character page. Break BEFORE the section, and keep
-       its heading glued to the first token row. */
-    .tokensSection{break-before:page;page-break-before:always}
-    .tokensSection h2.section{break-after:avoid;page-break-after:avoid}
   }
 </style>
 </head>
 <body>
   <div class="controls">
-    <h1>Print Characters</h1>
+    <h1>Print Characters — Grinches Attack Christmas</h1>
     <button onclick="window.print()">🖨️ Print</button>
     <button class="alt" id="bwToggle">Switch to Black &amp; White</button>
     <button class="alt" id="backBtn">← Back to game</button>
-    <span class="note">Color matches team: red = Christmas team, green = Grinch team, orange = third team. Tokens have a dashed cut line.</span>
+    <span class="note">Colour matches team: red = Christmas team, green = Grinch team, blue = moderator. In B&amp;W a team badge is added to each card.</span>
   </div>
 
   <div id="err">Couldn't load the character data. Try reopening the Print Characters page from the menu.</div>
@@ -104,83 +89,65 @@
   <div class="page">
     <h2 class="section">Characters</h2>
     <div class="cards" id="cards"></div>
-
-    <div class="tokensSection">
-      <h2 class="section">Tokens <span style="font-size:12px;font-weight:normal">(cut along dashed lines)</span></h2>
-      <div class="tokens" id="tokens"></div>
-    </div>
   </div>
 
 <script type="module">
-import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
-import { ROSTER } from "./roles.js?v=46";
+import { GAC_ROSTER } from "./gac-roles.js?v=12";
 
 const CARDS_PER_ROW = 4;
-const TOKENS_PER_ROW = 5;
 
 const TEAM_BADGE = {
   christmas: "PrintAssets/team-christmas.png",
   grinch:    "PrintAssets/team-grinch.png",
+  moderator: "PrintAssets/team-neutral.png",
   neutral:   "PrintAssets/team-neutral.png",
 };
 const TEAM_BADGE_WHITE = {
   christmas: "PrintAssets/team-christmas-white.png",
   grinch:    "PrintAssets/team-grinch-white.png",
+  moderator: "PrintAssets/team-neutral-white.png",
   neutral:   "PrintAssets/team-neutral-white.png",
+};
+// A thin coloured frame in colour mode so the team reads at a glance even
+// before B&W badges are needed.
+const TEAM_COLOR = {
+  christmas: "#c0182a",
+  grinch:    "#1f6f1f",
+  moderator: "#1f5fa0",
+  neutral:   "#1f5fa0",
 };
 
 try {
   // ---- Build character cards, grouped into unbreakable rows of 4 ----
   const cards = document.getElementById("cards");
   let row;
-  ROSTER.forEach((r, i) => {
+  GAC_ROSTER.forEach((r, i) => {
     if (i % CARDS_PER_ROW === 0){
       row = document.createElement("div");
       row.className = "row";
       cards.appendChild(row);
     }
-    const file = r.image.split("/").pop();
-    const ref = CHAR_REF[file] || { team:"christmas", desc:"" };
+    const team = r.team || "christmas";
     const div = document.createElement("div");
     div.className = "card";
+    div.style.borderColor = TEAM_COLOR[team] || "#999";
+    div.style.borderWidth = "2px";
+    // Sam is the moderator — no team, so no B&W badge.
+    const badgeHtml = (team === "moderator" || team === "neutral")
+      ? ""
+      : `<img class="teamBadge" data-team="${team}" src="${TEAM_BADGE[team] || TEAM_BADGE.neutral}" alt="${team} team">`;
     div.innerHTML = `<img class="art" src="${r.image}" alt="${r.name}">
-      <img class="teamBadge" data-team="${ref.team}" src="${TEAM_BADGE[ref.team]}" alt="${ref.team} team">
-      <div class="cap"><span class="cname">${r.name}</span>${ref.desc}</div>`;
+      ${badgeHtml}
+      <div class="cap"><span class="cname">${r.name}</span>${r.desc || ""}</div>`;
     row.appendChild(div);
   });
   // Pad the final card row so cards keep their quarter width.
-  const cardRem = ROSTER.length % CARDS_PER_ROW;
+  const cardRem = GAC_ROSTER.length % CARDS_PER_ROW;
   if (cardRem){
     for (let k = cardRem; k < CARDS_PER_ROW; k++){
       const s = document.createElement("div");
       s.className = "card spacer";
       row.appendChild(s);
-    }
-  }
-
-  // ---- Build token cells, grouped into unbreakable rows of 5 ----
-  const tokens = document.getElementById("tokens");
-  let trow;
-  TOKEN_REF.forEach((t, i) => {
-    if (i % TOKENS_PER_ROW === 0){
-      trow = document.createElement("div");
-      trow.className = "row";
-      tokens.appendChild(trow);
-    }
-    const name = t.file.replace(/\.png$/, "");
-    const cell = document.createElement("div");
-    cell.className = "tok";
-    cell.innerHTML = `<img src="Tokens/${t.file}" alt="${name}">
-      <div class="tname">${name}</div><div class="tdesc">${t.desc}</div>
-      ${t.cpt ? '<div class="tcpt">Christmas Present Token</div>' : ''}`;
-    trow.appendChild(cell);
-  });
-  const tokRem = TOKEN_REF.length % TOKENS_PER_ROW;
-  if (tokRem){
-    for (let k = tokRem; k < TOKENS_PER_ROW; k++){
-      const s = document.createElement("div");
-      s.className = "tok spacer";
-      trow.appendChild(s);
     }
   }
 
@@ -191,28 +158,34 @@ try {
     bwBtn.textContent = bw ? "Switch to Color" : "Switch to Black & White";
     document.querySelectorAll(".teamBadge").forEach(b => {
       const team = b.dataset.team;
-      b.src = (bw ? TEAM_BADGE_WHITE : TEAM_BADGE)[team];
+      b.src = (bw ? TEAM_BADGE_WHITE : TEAM_BADGE)[team] || (bw ? TEAM_BADGE_WHITE : TEAM_BADGE).neutral;
+    });
+    // In B&W the coloured frame becomes black; restore team colour in colour mode.
+    document.querySelectorAll(".card").forEach(c => {
+      if (c.classList.contains("spacer")) return;
+      c.style.borderColor = bw ? "#000" : (c.dataset.teamColor || "#999");
     });
   };
+  // Remember each card's team colour so the toggle can restore it.
+  document.querySelectorAll(".card").forEach((c, idx) => {
+    const r = GAC_ROSTER[idx];
+    if (r) c.dataset.teamColor = TEAM_COLOR[r.team || "christmas"] || "#999";
+  });
 } catch (e){
   document.getElementById("err").style.display = "block";
-  console.error("print.html build error:", e);
+  console.error("gac-print.html build error:", e);
 }
 
 // ---- Back to game ----
-// If we were opened in the same tab, history.back() returns to index.html.
-// If opened as a popup tab (older flow), there's no history, so fall back to index.
 const backBtn = document.getElementById("backBtn");
 if (backBtn) backBtn.onclick = () => {
   if (window.history.length > 1) window.history.back();
   else window.location.href = "index.html";
 };
 
-// ---- Repaint guard: when the print dialog closes (cancel OR done) some mobile
-// browsers leave the page unpainted. Nudge a reflow so it reappears
-// instead of showing a blank background. ----
+// ---- Repaint guard: some mobile browsers leave the page unpainted after the
+// print dialog closes. Nudge a reflow so it reappears. ----
 function repaint(){
-  // Toggling a transform forces the compositor to repaint the page.
   document.body.style.transform = "translateZ(0)";
   requestAnimationFrame(() => { document.body.style.transform = ""; });
 }
