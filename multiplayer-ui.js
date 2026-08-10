@@ -20,7 +20,7 @@ import { configured, joinRoom, createVoteSession,
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
          gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm }
-  from "./multiplayer.js?v=94";
+  from "./multiplayer.js?v=95";
 
 export { configured, startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch,
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
@@ -58,7 +58,7 @@ function makeLayer(id) {
   return layer;
 }
 
-function ensureStyles() {
+export function ensureStyles() {
   if (document.getElementById("mpStyles")) return;
   const css = `
   .mpLayer{position:fixed;inset:0;z-index:9000;display:none;

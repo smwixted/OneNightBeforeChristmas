@@ -396,11 +396,26 @@ export function getHostSession(){ return hostSession; }
 export async function startSession({ hostName, onPlayersChanged, onVoteFromPlayer }) {
   if (hostSession) return hostSession;          // already hosting
   let players = [];
+  // Sticky roster: names we've EVER seen join, so a phone that sleeps (and drops
+  // out of live presence) isn't removed from the game. Maps name -> last-known
+  // entry; `connected` reflects whether they're in the current presence sync.
+  const everSeen = new Map();
   const room = await createRoom({
     hostName,
     name: hostName,
     onPresence: (list) => {
       players = list;
+      // Fold the live list into the sticky roster.
+      const liveNames = new Set();
+      for (const p of list){
+        if (p.role !== "player") continue;
+        liveNames.add(p.name);
+        everSeen.set(p.name, { ...p, connected: true });
+      }
+      // Anyone previously seen but not in this sync is asleep/away — keep them.
+      for (const [nm, entry] of everSeen){
+        if (!liveNames.has(nm)) everSeen.set(nm, { ...entry, connected: false });
+      }
       if (onPlayersChanged) onPlayersChanged(uniquePlayers(players));
     },
     onMessage: (type, payload) => {
@@ -435,14 +450,19 @@ export async function startSession({ hostName, onPlayersChanged, onVoteFromPlaye
         hostSession.onGacSamDay(payload);
     },
   });
-  // Players present, deduped by name (presence can list a reconnecting phone
-  // more than once). First occurrence wins.
+  // Players present, deduped by name — now drawn from the STICKY roster so a
+  // sleeping phone stays listed. `connected:false` marks who's currently away.
   function uniquePlayers(list){
+    // Union of live presence and everyone ever seen this session.
     const seen = new Set(); const out = [];
     for (const p of list) {
       if (p.role !== "player") continue;
       if (seen.has(p.name)) continue;
-      seen.add(p.name); out.push(p);
+      seen.add(p.name); out.push({ ...p, connected: true });
+    }
+    for (const [nm, entry] of everSeen){
+      if (seen.has(nm)) continue;
+      seen.add(nm); out.push({ ...entry, connected: false });
     }
     return out;
   }

@@ -1077,6 +1077,13 @@
     </div>
   </div>
 
+  <!-- Host-side card assignment (host IS Sam, physical deal, full tracking).
+       Uses the SAME mp* styles/markup as the phone's Sam assignment screen so it
+       looks identical. Body is built by gacRenderHostAssign(). -->
+  <div id="gacHostAssignDlg" class="mpLayer">
+    <div class="mpWrap" id="gacHostAssignWrap"></div>
+  </div>
+
   <!-- Inline "Who is Sam?" picker (physical deal, Sam in roster) -->
   <div id="gacSamPickerDlg" style="display:none;position:fixed;inset:0;z-index:9600;
        background:rgba(6,20,40,.92);flex-direction:column;align-items:center;justify-content:center;padding:24px">
@@ -1090,7 +1097,7 @@
         <button type="button" class="gacModeBtn" data-samctrl="sam">Sam controls</button>
       </div>
       <div class="gacSetupHint" id="gacSamCtrlHint" style="margin:4px 0 10px"></div>
-      <button type="button" class="gacGhostBtn" style="margin-top:6px" onclick="gacCloseSamPicker()">Cancel</button>
+      <button id="gacSamPickerCancel" type="button" class="gacGhostBtn" style="margin-top:6px">Cancel</button>
     </div>
   </div>
 
@@ -1345,8 +1352,8 @@ import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpCo
          startSession, endSession, getHostSession, broadcastRoles, openJoinPrompt, teardownHostVoteUI, renameHost, broadcastGameSwitch,
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
-         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat }
-  from "./multiplayer-ui.js?v=204";
+         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles }
+  from "./multiplayer-ui.js?v=206";
 import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
 
 // ---------- PLAYER JOIN MODE ----------
@@ -3888,6 +3895,10 @@ function gacShowSamPicker(){
   dlg.style.display = "flex";
 }
 function gacCloseSamPicker(){ const d = document.getElementById("gacSamPickerDlg"); if (d) d.style.display = "none"; }
+{
+  const c = document.getElementById("gacSamPickerCancel");
+  if (c) c.onclick = () => gacCloseSamPicker();
+}
 
 // ---- Sam Settings screen (pace / input / choices) ----
 const GAC_PACE_HINTS = {
@@ -3991,7 +4002,125 @@ function gacContinueBeginAfterSam(){
     gacSendSetupToSam(samSetupName);
     return;
   }
+  // Host IS Sam, physical deal, full tracking (Sam inputs / players don't pick):
+  // the host assigns each player's dealt card here on their own screen — the same
+  // task a non-host Sam does on their phone.
+  if (gacHostIsSam() && !settings.gacVirtualDeal && !settings.gacNoTracking
+      && !settings.gacPlayersPickCards){
+    gacShowHostAssign();
+    return;
+  }
   gacBeginFromRoster();
+}
+// Is the host the one playing Sam this game? In a hosted physical game the Sam
+// assignment is mode "pick" even when the host picked themselves, so compare the
+// resolved Sam name to the host name (solo mode is always host-as-Sam).
+function gacHostIsSam(){
+  const sam = gacSamAssignment();
+  if (!sam.inPlay) return false;
+  if (sam.mode === "host") return true;
+  const hostNm = (settings.mpHostName || "").trim();
+  const samNm = (sam.samName || gacSamPickedInline || "").trim();
+  return !!(hostNm && samNm && hostNm === samNm);
+}
+// ---- Host-side card assignment (host is Sam) ----
+let gacHostAssignPicks = {};   // playerName -> roleId
+function gacShowHostAssign(){
+  try { mpEnsureStyles(); } catch(_){}   // inject the phone's mp* styles so this looks identical
+  gacHostAssignPicks = {};
+  // Seed from any existing roleIds on the roster (e.g. re-entering setup).
+  gacPlayers.forEach(p => { const nm=(p.name||"").trim(); if (nm && p.roleId && p.roleId !== "Elf1") gacHostAssignPicks[nm] = p.roleId; });
+  gacRenderHostAssign();
+  const dlg = document.getElementById("gacHostAssignDlg");
+  if (dlg) dlg.classList.add("show");
+}
+function gacCloseHostAssign(){
+  const d = document.getElementById("gacHostAssignDlg");
+  if (d) d.classList.remove("show");
+}
+// Options for one player's dropdown: every selected physical card, each
+// selectable once (duplicates number as "Elf 1, Elf 2…"), Sam excluded.
+function gacHostAssignOptions(currentVal, forPlayer){
+  const cards = [];
+  GAC_ROSTER.forEach(r => { if (gacSelected.has(r.id) && r.id !== "Sam") cards.push({ id:r.id, name:r.name }); });
+  const taken = {};
+  for (const nm in gacHostAssignPicks){
+    if (nm === forPlayer) continue;
+    const rid = gacHostAssignPicks[nm];
+    if (rid) taken[rid] = (taken[rid] || 0) + 1;
+  }
+  const byName = new Map();
+  cards.forEach(c => { if (!byName.has(c.name)) byName.set(c.name, []); byName.get(c.name).push(c.id); });
+  const totalById = {};
+  cards.forEach(c => { totalById[c.id] = (totalById[c.id] || 0) + 1; });
+  let html = `<option value="">— Select Character —</option>`;
+  for (const [name, ids] of byName){
+    ids.forEach((id, n) => {
+      const usedElsewhere = taken[id] || 0;
+      const disabled = usedElsewhere >= (totalById[id] || 1) && currentVal !== id;
+      const label = ids.length > 1 ? `${name} ${n + 1}` : name;
+      const sel = currentVal === id ? " selected" : "";
+      const dis = disabled ? " disabled" : "";
+      const mark = disabled ? " ✓ assigned" : "";
+      html += `<option value="${id}"${sel}${dis}>${label}${mark}</option>`;
+    });
+  }
+  return html;
+}
+function gacRenderHostAssign(){
+  const wrap = document.getElementById("gacHostAssignWrap");
+  if (!wrap) return;
+  wrap.innerHTML = "";
+  const mk = (tag, cls, html) => { const e = document.createElement(tag); if (cls) e.className = cls; if (html != null) e.innerHTML = html; return e; };
+  // Header + subtitle — identical text/classes to the phone's renderSamSetup.
+  wrap.appendChild(mk("div", "mpH", "🎴 Assign the cards"));
+  const sub = mk("div", "mpSub", "You're Sam. Set which character each player was physically dealt, then tap Begin.");
+  sub.style.cssText = "opacity:.85;margin-top:-6px;text-align:center";
+  wrap.appendChild(sub);
+  // Players to assign = everyone EXCEPT the host (who holds Sam, no card).
+  const players = gacPlayers.map(p => (p.name||"").trim()).filter(Boolean)
+                            .filter(nm => nm !== settings.mpHostName);
+  const list = mk("div");
+  list.style.cssText = "margin:14px 0;display:flex;flex-direction:column;gap:8px";
+  players.forEach(name => {
+    const row = mk("div");
+    row.style.cssText = "display:flex;align-items:center;gap:8px";
+    const label = mk("div");
+    label.style.cssText = "flex:0 0 40%;font-family:'NitemareFont','Trebuchet MS',Arial,sans-serif;font-weight:bold;overflow:hidden;text-overflow:ellipsis";
+    label.textContent = name;
+    row.appendChild(label);
+    const sel = mk("select", "mpInput");
+    sel.style.cssText = "flex:1 1 auto";
+    sel.innerHTML = gacHostAssignOptions(gacHostAssignPicks[name] || "", name);
+    sel.onchange = () => {
+      if (sel.value) gacHostAssignPicks[name] = sel.value;
+      else delete gacHostAssignPicks[name];
+      gacRenderHostAssign();   // re-render so "assigned" greying updates across rows
+    };
+    row.appendChild(sel);
+    list.appendChild(row);
+  });
+  wrap.appendChild(list);
+  const assigned = Object.keys(gacHostAssignPicks).length;
+  const count = mk("div", "mpSub", `${assigned} of ${players.length} assigned`);
+  count.style.cssText = "text-align:center;opacity:.7";
+  wrap.appendChild(count);
+  const begin = mk("button", "mpBtn gac full", "▶ Begin Night 1");
+  begin.style.cssText = "margin-top:12px";
+  begin.onclick = () => {
+    begin.disabled = true; begin.textContent = "Starting…";
+    gacPlayers.forEach(p => {
+      const nm = (p.name||"").trim();
+      if (gacHostAssignPicks[nm]) p.roleId = gacHostAssignPicks[nm];
+    });
+    gacCloseHostAssign();
+    gacBeginFromRoster();
+  };
+  wrap.appendChild(begin);
+  const cancel = mk("button", "mpBtn alt", "Cancel");
+  cancel.style.cssText = "margin-top:8px";
+  cancel.onclick = () => gacCloseHostAssign();
+  wrap.appendChild(cancel);
 }
 // Sam controls the settings from their phone. Send current values; Sam adjusts
 // and taps Begin, replying with the chosen pace/input/choices to apply here.
