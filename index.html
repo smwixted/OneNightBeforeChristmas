@@ -1086,11 +1086,11 @@
 
   <!-- Inline "Who is Sam?" picker (physical deal, Sam in roster) -->
   <div id="gacSamPickerDlg" style="display:none;position:fixed;inset:0;z-index:9600;
-       background:rgba(6,20,40,.92);flex-direction:column;align-items:center;justify-content:center;padding:24px">
-    <div style="max-width:460px;width:100%;text-align:center">
+       background:rgba(6,20,40,.96);overflow-y:auto;-webkit-overflow-scrolling:touch;padding:24px 18px 40px">
+    <div style="max-width:460px;width:100%;margin:0 auto;text-align:center">
       <div class="gacScreenTitle" style="margin-bottom:6px">Who is Sam the Snowman?</div>
       <p class="gacSetupHint" style="margin:0 0 16px">Sam runs the night. Choose which player was dealt the Sam card — they'll assign everyone's cards next.</p>
-      <div id="gacSamPickerList" style="display:flex;flex-direction:column;gap:8px;max-height:44vh;overflow:auto"></div>
+      <div id="gacSamPickerList" style="display:flex;flex-direction:column;gap:8px"></div>
       <div class="gacSetSubLabel" style="margin-top:18px">Who sets up the Sam Settings (pace, input, choices)?</div>
       <div class="gacCardModeBtns" id="gacSamCtrlBtns" style="justify-content:center">
         <button type="button" class="gacModeBtn" data-samctrl="host">Host controls</button>
@@ -1742,6 +1742,22 @@ let gacCurrentAudioEndsAt = 0;   // Date.now()-based timestamp when current narr
 let gacAudioQueue = [];          // clips waiting for the current one to finish
 let gacAudioPlaying = false;     // is a narration clip currently playing?
 
+// Unlock the narration <audio> element for later programmatic play. Mobile
+// browsers won't let an <audio> element play from a timer/async callback unless
+// it was first played during a user gesture — so call this from the Begin tap.
+let gacNarrAudioUnlocked = false;
+function gacUnlockNarrAudio(){
+  if (gacNarrAudioUnlocked) return;
+  try {
+    const el = gacEnsureNarrAudioEl();
+    const wasMuted = el.muted;
+    el.muted = true;
+    const p = el.play();
+    if (p && p.then) p.then(() => { el.pause(); el.currentTime = 0; el.muted = wasMuted; }).catch(() => { el.muted = wasMuted; });
+    else { el.pause(); el.muted = wasMuted; }
+    gacNarrAudioUnlocked = true;
+  } catch(_){}
+}
 function gacEnsureNarrAudioEl(){
   if (!gacNarrAudioEl){
     gacNarrAudioEl = document.getElementById("gacNarrAudio") || (() => {
@@ -1884,18 +1900,8 @@ function gacBuildSteps(night){
           // In every one of those cases we still read the REAL prompt aloud and
           // pace it like a live decision (no input), so the table can never deduce
           // which roles are gone by hearing a beat go silent or get skipped.
-          if (decision === "buddySwap" && gacGame){   // [GAC-BUDDY] diagnostic
-            const bs = gacGame.players.filter(p => p.roleId === "Buddy")
-              .map(p => ({ name:p.name, alive:p.alive, power:p.powers && p.powers.buddySwap }));
-            console.log("[GAC-BUDDY] buddySwap built as NO-INPUT on night", night,
-              "| holders:", JSON.stringify(bs),
-              "| active:", gacDecisionActive("buddySwap"),
-              "| wasInPlay:", gacDecisionWasInPlay("buddySwap"),
-              "| inCenter:", gacDecisionInCenter("buddySwap"),
-              "| spent:", gacDecisionSpent("buddySwap"),
-              "| center:", JSON.stringify(gacGame.centerCards||[]));
-          }
-          steps.push({ type:"decision", key: decision, img, text, audio: gacAudioFor(text), centerRole:true });
+          steps.push({ type:"decision", key: decision, img, text, audio: gacAudioFor(text), centerRole:true,
+                       noInputReason: gacCenterRoleReason(decision) });
         } else {
           // Role not selected for this game at all → just read the line (no decision).
           steps.push({ type:"line", text, img, audio:gacAudioFor(text) });
@@ -2084,7 +2090,7 @@ function gacStreamNarrationToSam(step, isLast){
       night: gacNight,
       text: (step && step.text) || "",
       img: (step && step.img) || "",
-      note: noInputBeat ? gacCenterRoleReason(step.key) : "",
+      note: noInputBeat ? ((step && step.noInputReason) || gacCenterRoleReason(step.key)) : "",
       progress: `${gacIdx + 1} / ${gacSteps.length}`,
       // Show a Next button whenever the host isn't auto-advancing — and ALWAYS for
       // a no-input beat, since Sam must be able to pace past it manually.
@@ -2129,6 +2135,26 @@ function gacRenderLine(){
   const step = gacSteps[gacIdx];
   const isLast = (gacIdx === gacSteps.length - 1);
   if (!step){ gacNarrLine.innerHTML = ""; gacClearAutoTimers(); return; }
+
+  // BUDDY-VIA-WET: the Buddy card can change hands via a Wet Bandit steal — Wet
+  // may take Buddy, or the player Wet stole from may RECEIVE Buddy from the center
+  // as their replacement. Either way the new holder should act as Buddy. The steal
+  // normally applies at the end-of-night card check, but Buddy is the last role
+  // beat (after Wet), so applying it here is safe and lets the current holder act.
+  if (step.type === "decision" && step.key === "buddySwap" && step.centerRole
+      && gacGame && gacNightDecisions && gacNightDecisions.wetSteal
+      && !gacNightDecisions._wetApplied && !gacDecisionActive("buddySwap")){
+    try {
+      const before = gacSnapshotRoles();
+      applyWetSteal(gacGame, gacNightDecisions);   // idempotent — resolveNight won't repeat it
+      try { gacPushChangedCards(before); } catch(_){}
+      try { gacShowTrackHostCard(); } catch(_){}
+    } catch(_){}
+    if (gacDecisionActive("buddySwap")){
+      step.centerRole = false;      // a living player now holds Buddy → real decision
+      step.noInputReason = "";
+    }
+  }
 
   // Character portrait for this beat's role (hidden on universal beats).
   const portrait = document.getElementById("gacNarrPortrait");
@@ -2178,7 +2204,7 @@ function gacRenderLine(){
     // Host-only status: say WHY there's nothing to collect here. The spoken
     // narration is identical either way, so the table learns nothing — this is
     // just so the person running the game isn't left wondering.
-    const why = gacCenterRoleReason(step.key);
+    const why = (step && step.noInputReason) || gacCenterRoleReason(step.key);
     if (why){
       gacNarrDecisionWrap.style.display = "";
       gacNarrDecisionWrap.innerHTML = `<div class="gacDecNarr" style="text-align:center;opacity:.75">${why}</div>`;
@@ -2391,6 +2417,7 @@ function gacStartNight(night){
     return;   // Night 1 resumes from gacSamSettingsDone / Sam's reply
   }
   gacNight = night;
+  try { WakeLock.acquire(); } catch(_){}       // keep the screen awake through the night
   gacNightInterrupted = false;                // starting a night clears the interrupt flag
   gacPaused = false;                          // and the pause state
   gacAudioAlreadyPlayed.clear();              // no pre-played clips yet this night
@@ -3797,6 +3824,7 @@ document.getElementById("gacAddPlayer").onclick = () => {
 };
 
 document.getElementById("gacBeginGame").onclick = () => {
+  gacUnlockNarrAudio();   // real user gesture → unlock narration audio for mobile
   // Final gate: re-validate on click so no path can bypass the checks.
   if (!gacValidateSetup()){
     // Scroll the warning into view in case it's below the fold.
@@ -3892,7 +3920,7 @@ function gacShowSamPicker(){
     dlg.style.display = "none";
     gacOpenSamSettings();   // route to the Sam Settings screen (host or Sam device)
   };
-  dlg.style.display = "flex";
+  dlg.style.display = "block";
 }
 function gacCloseSamPicker(){ const d = document.getElementById("gacSamPickerDlg"); if (d) d.style.display = "none"; }
 {
@@ -3982,6 +4010,7 @@ document.querySelectorAll("#gacSamInputBtns .gacModeBtn").forEach(b => {
   if (cb) cb.onchange = () => { settings.gacPlayerChoices = cb.checked; saveSettings(); };
 }
 document.getElementById("gacSamSettingsDone").onclick = () => {
+  gacUnlockNarrAudio();   // real gesture → unlock narration audio for mobile
   document.getElementById("gacSamSettings").style.display = "none";
   // Night 1 was gated on Sam Settings (virtual deal path) — resume it now.
   if (gacPendingNight1){ gacPendingNight1 = false; gacStartNight(1); return; }
@@ -4108,6 +4137,7 @@ function gacRenderHostAssign(){
   const begin = mk("button", "mpBtn gac full", "▶ Begin Night 1");
   begin.style.cssText = "margin-top:12px";
   begin.onclick = () => {
+    gacUnlockNarrAudio();   // real gesture → unlock narration audio for mobile
     begin.disabled = true; begin.textContent = "Starting…";
     gacPlayers.forEach(p => {
       const nm = (p.name||"").trim();
