@@ -499,7 +499,7 @@
   /* Setup + tracker overlays (share the narrator's full-screen green look) */
   #gacSetup{position:fixed;inset:0;z-index:60;background:url("Blue.jpg") repeat;
     display:flex;flex-direction:column}
-  #gacTracker, #gacDecisions, #gacGameLog{position:fixed;inset:0;z-index:60;
+  #gacTracker, #gacGameLog{position:fixed;inset:0;z-index:60;
     background:url("Blue.jpg") repeat;display:flex;flex-direction:column}
   #gacLogTop{display:flex;align-items:center;justify-content:space-between;padding:16px 18px}
   #gacLogClose{background:#b3261e;color:#fff;border:none;border-radius:8px;width:42px;height:42px;font-size:20px;cursor:pointer;font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif}
@@ -537,14 +537,12 @@
   .gacWinBadge{display:block;font-size:11px;margin-top:3px;padding:2px 6px;border-radius:6px;font-weight:bold}
   .gacWinBadge.win{background:#1f7a1f;color:#eaffea}
   .gacWinBadge.lose{background:#7a1f1f;color:#ffdede}
-  #gacSetupTop, #gacTrackTop, #gacDecTop{display:flex;align-items:center;justify-content:space-between;padding:16px 18px}
-  #gacSetupClose, #gacTrackClose, #gacDecClose{background:#b3261e;color:#fff;border:none;border-radius:8px;
+  #gacSetupTop, #gacTrackTop{display:flex;align-items:center;justify-content:space-between;padding:16px 18px}
+  #gacSetupClose, #gacTrackClose{background:#b3261e;color:#fff;border:none;border-radius:8px;
     width:42px;height:42px;font-size:20px;cursor:pointer;font-family:"GingerbreadFont",cursive}
-  #gacSetupBody, #gacTrackBody, #gacDecBody{flex:1;overflow-y:auto;padding:8px 18px;-webkit-overflow-scrolling:touch}
-  /* Decision questions */
-  #gacDecQuestions{max-width:680px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
-  .gacDecQ{padding:14px 16px}
+  #gacSetupBody, #gacTrackBody{flex:1;overflow-y:auto;padding:8px 18px;-webkit-overflow-scrolling:touch}
   .gacBlindNote{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;color:#cfe;font-size:15px;margin-top:10px;opacity:.85;text-align:center}
+  .gacDecQ{padding:14px 16px}
   .gacDecQ .gacDecLabel{font-family:"GingerbreadFont",cursive;color:#fff;font-size:19px;letter-spacing:1px;
     display:block;margin-bottom:10px;text-align:center;text-shadow:0 2px 8px rgba(0,0,0,.85)}
   .gacKrampusVictim, .gacVictimName{color:#ffdf7e;text-decoration:underline;font-size:1.25em;font-weight:bold}
@@ -688,9 +686,6 @@
   .gacDecQ.twopick{display:flex;gap:8px;flex-wrap:wrap}
   .gacDecQ.twopick .gacDecLabel{flex:1 1 100%}
   .gacDecQ.twopick select{flex:1;min-width:130px}
-  #gacResolveNight{font-family:"GingerbreadFont",cursive;background:darkgreen;color:#fff;border:none;
-    border-radius:12px;padding:14px 30px;font-size:22px;cursor:pointer;letter-spacing:2px;box-shadow:0 3px 10px rgba(0,0,0,.5)}
-  #gacDecControls{display:flex;gap:14px;justify-content:center;padding:12px 18px 22px}
   .gacScreenTitle{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;color:#fff;font-size:24px;
     text-shadow:0 2px 5px rgba(0,0,0,.6);letter-spacing:2px}
   .gacSetupHint{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;color:#dfffe6;
@@ -1169,21 +1164,6 @@
       <button id="gacNarrNext" type="button">Next ▶</button>
     </div>
     <div id="gacNarrProgress"></div>
-  </div>
-
-  <!-- GAC night-decisions screen (Sam enters each night's choices; engine resolves) -->
-  <div id="gacDecisions" style="display:none">
-    <div id="gacDecTop">
-      <span class="gacScreenTitle" id="gacDecTitle">Night 1 — decisions</span>
-      <button id="gacDecClose" type="button" title="Skip resolving">✕</button>
-    </div>
-    <div id="gacDecBody">
-      <p class="gacSetupHint">Enter what happened tonight. The app resolves who lives or dies and updates the tracker. Leave a choice blank to skip it.</p>
-      <div id="gacDecQuestions"></div>
-    </div>
-    <div id="gacDecControls">
-      <button id="gacResolveNight" type="button">▶ Resolve Night</button>
-    </div>
   </div>
 
   <!-- GAC alive/dead tracker (day phase) -->
@@ -4540,11 +4520,6 @@ function gacPushChangedCards(beforeSnap){
   });
 }
 
-// ---- Night decisions (Sam enters choices; engine resolves) ----
-const gacDecisions  = document.getElementById("gacDecisions");
-const gacDecQuestions = document.getElementById("gacDecQuestions");
-const gacDecTitle   = document.getElementById("gacDecTitle");
-
 // Living players as <option>s. `includeNone` adds a "— none —" blank choice.
 function gacLivingOptions(includeNone, excludeIds){
   const ex = Array.isArray(excludeIds) ? excludeIds : (excludeIds ? [excludeIds] : []);
@@ -5563,111 +5538,6 @@ function gacAdvanceAfterConfirm(key){
 // Capture is now a no-op for state (clicks write gacNightDecisions directly),
 // kept for the flow's call sites.
 function gacCaptureInlineDecision(key){ /* state captured live on click */ }
-
-// Build the decision questions for this night, in resolution order, only for
-// roles that are present and alive. Once-per-game powers drop off the screen
-// after they've been used (the narration still reads, but there's nothing left
-// to track). Returns the list of {key, el} so we can read answers back.
-function gacBuildDecisionQuestions(night){
-  gacDecQuestions.innerHTML = "";
-  const q = [];
-  const add = (key, label, html, cls) => {
-    const div = document.createElement("div");
-    div.className = "gacDecQ" + (cls ? " " + cls : "");
-    div.innerHTML = `<span class="gacDecLabel">${label}</span>${html}`;
-    div.dataset.key = key;
-    gacDecQuestions.appendChild(div);
-    q.push({ key, el: div });
-  };
-
-  // Recurring powers: show every night the role is alive.
-  if (gacRoleActive("Shelf"))
-    add("protect", "🛡️ Who did Elf on the Shelf protect?", `<select>${gacLivingOptions(true)}</select>`);
-  if (gacGrinchesAlive())
-    add("grinchKill", "😈 Who did the Grinches kill?", `<select>${gacLivingOptions(false)}</select>`);
-  // Krampus convert: once per game. Yes/no on the Grinches' victim, whose name is
-  // shown live (and updates if the Grinch target changes). Phrased this way so it
-  // reads correctly when the question later goes to the Krampus player's phone.
-  if (gacPowerAvailable("Krampus", "krampusConvert"))
-    add("krampusConvert", `🔥 Did Krampus convert <span class="gacKrampusVictim">the Grinches' victim</span> into a Grinch?`,
-        `<select><option value="">No</option><option value="yes">Yes — convert them</option></select>`);
-  // Mrs. Claus save & poison: each once per game, shown only while available.
-  if (gacPowerAvailable("Mrs", "mrsClausSave"))
-    add("mrsSave", "🍪 Who did Mrs. Claus save?", `<select>${gacLivingOptions(true)}</select>`);
-  if (gacPowerAvailable("Mrs", "mrsClausPoison"))
-    add("mrsPoison", "☠️ Who did Mrs. Claus poison?", `<select>${gacLivingOptions(true)}</select>`);
-  // Belsnickel: recurring.
-  if (gacRoleActive("Belsnickel"))
-    add("belsnickelKill", "🗡️ Who did Belsnickel kill?", `<select>${gacLivingOptions(true)}</select>`);
-  // Buddy swap: once per game.
-  if (gacPowerAvailable("Buddy", "buddySwap"))
-    add("buddySwap", "🔄 Did Buddy swap two players? (pick both, or leave blank)",
-        `<select class="bswapA">${gacLivingOptions(true)}</select><select class="bswapB">${gacLivingOptions(true)}</select>`, "twopick");
-
-  // Wire the Krampus victim name to the Grinches' choice (live update).
-  gacWireKrampusVictim();
-
-  return q;
-}
-
-// Keep the Krampus question showing the current Grinch victim's name, and gate
-// its "Yes" so you can't convert when no victim was chosen.
-function gacWireKrampusVictim(){
-  const grinchQ  = gacDecQuestions.querySelector('.gacDecQ[data-key="grinchKill"]');
-  const krampusQ = gacDecQuestions.querySelector('.gacDecQ[data-key="krampusConvert"]');
-  if (!krampusQ) return;
-  const victimSpan = krampusQ.querySelector(".gacKrampusVictim");
-  const krampusSel = krampusQ.querySelector("select");
-  const grinchSel  = grinchQ ? grinchQ.querySelector("select") : null;
-  const refresh = () => {
-    const vid = grinchSel ? grinchSel.value : "";
-    const victim = vid ? gacGame.players.find(p => p.id === vid) : null;
-    if (victim){
-      victimSpan.textContent = victim.name;
-      victimSpan.style.opacity = "1";
-      krampusSel.disabled = false;
-    } else {
-      victimSpan.textContent = "the Grinches' victim";
-      victimSpan.style.opacity = ".7";
-      // No victim chosen -> nothing to convert; force back to "No".
-      krampusSel.value = "";
-      krampusSel.disabled = true;
-    }
-  };
-  if (grinchSel) grinchSel.addEventListener("change", refresh);
-  refresh();
-}
-
-function gacOpenDecisions(){
-  gacDecTitle.textContent = `Night ${gacNight} — decisions`;
-  gacBuildDecisionQuestions(gacNight);
-  // If no decision applies (e.g., only vanilla roles), skip straight to tracker.
-  if (!gacDecQuestions.children.length){ gacOpenTracker(); return; }
-  gacDecisions.style.display = "flex";
-}
-
-function gacReadDecisions(){
-  const d = {};
-  [...gacDecQuestions.children].forEach(div => {
-    const key = div.dataset.key;
-    if (key === "buddySwap"){
-      const a = div.querySelector(".bswapA").value, b = div.querySelector(".bswapB").value;
-      if (a && b && a !== b) d.buddySwap = [a, b];
-    } else {
-      const v = div.querySelector("select").value;
-      if (v) d[key] = v;
-    }
-  });
-  return d;
-}
-
-document.getElementById("gacResolveNight").onclick = () => {
-  const decisions = gacReadDecisions();
-  const report = resolveNight(gacGame, decisions);
-  gacDecisions.style.display = "none";
-  gacOpenTracker(report);
-};
-document.getElementById("gacDecClose").onclick = () => { gacDecisions.style.display = "none"; gacOpenTracker(); };
 
 // Build the tracker's result banner. Mirrors the players' phone summary exactly,
 // in the same order: swaps -> (vote result + heartbreak + coin flip) OR overnight

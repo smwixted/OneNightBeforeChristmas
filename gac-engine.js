@@ -158,8 +158,8 @@ export function living(game){ return game.players.filter(p => p.alive && p.roleI
 // ---- Win check ----
 // Two win modes (game.settings.gacWinMode):
 //   "majority" (default, classic): the Grinches win once they reach parity with
-//       the rest of the town, checked right after a day vote — BUT only if the
-//       Christmas team has no night KILL left (see gacChristmasCanStillKill).
+//       the rest of the town, checked right after a day vote — BUT only if
+//       Christmas has no possible path back (see gacChristmasHasPathToVictory).
 //   "total":    play until a faction is COMPLETELY eliminated (or the lovers are
 //       all that remain).
 //
@@ -170,26 +170,78 @@ function gacOpposition(live){
   return live.filter(p => p.team !== "grinch" && p.roleId !== "Burger");
 }
 
-// Can the Christmas team still REDUCE the Grinch count overnight?
-// Saves/shields don't matter here: at parity the Grinches simply out-vote the
-// town, so being saved doesn't change the outcome. Only a KILL does, because it
-// changes the count itself. The Grinches must not be handed a parity win while
-// any of these are live:
-//   - Belsnickel alive            -> kills every night
-//   - Mrs. Claus alive, poison unused -> can poison a Grinch
-//   - Buddy the Elf alive, swap unused -> can redirect the Grinch kill onto a Grinch
-//   - Jack Frost alive            -> if they kill him, he takes a Grinch down with him
-// (Yukon only SURVIVES an attack — that's a save, not a kill, so he does not
-//  block a parity win.)
-export function gacChristmasCanStillKill(game){
-  return game.players.some(p => {
-    if (!p.alive || p.team === "grinch") return false;
-    if (p.roleId === "Belsnickel") return true;
-    if (p.roleId === "Frost") return true;
-    if (p.roleId === "Mrs"   && p.powers && p.powers.mrsClausPoison) return true;
-    if (p.roleId === "Buddy" && p.powers && p.powers.buddySwap)      return true;
-    return false;
-  });
+// Does Christmas have ANY possible path back to victory from here?
+//
+// This is a fully-determined count race, not a search -- both sides' turn
+// sequence and behavior are pinned down exactly (win-CALCULATION assumptions
+// only, never a gameplay rule imposed on the actual players):
+//   [[evaluate here, right after a vote]] -> NIGHT (the Grinches' kill lands
+//   on a Christmas player unless blocked/saved; Christmas's own night powers
+//   fire) -> NEXT VOTE (a coordinated Christmas bloc removes one Grinch
+//   whenever Others' living count is still >= the living Grinch count --
+//   Grinches vote worst-case for themselves, i.e. they split rather than
+//   coordinate a defense, so a united Christmas bloc beats them even at an
+//   exact tie; Grinches never vote for or kill a teammate) -> repeat.
+//
+// SUCCESS CONDITION (unchanged from the earlier design): a path exists the
+// moment the living Grinch count could drop BELOW its current value by any
+// amount -- not only if it can reach zero. "Christmas only WINS at zero
+// Grinches" is untouched and lives entirely in checkWin()'s own step 2
+// total-elimination check; this function only governs when a GRINCH win is
+// declared.
+//
+// Given that sequence, the race reduces to a closed-form check with no
+// simulation needed at all:
+//   - Any Christmas tool that can KILL or REDIRECT onto a Grinch (Mrs's
+//     unused poison, a living Belsnickel, Buddy's unused swap) always lands
+//     at least once -- even a one-time use fires on the very first night,
+//     since there's always >= 1 living Grinch to target, and decisions
+//     within a night are simultaneous (a power-holder who also dies that
+//     same night still gets their action off first). This alone is always
+//     enough to satisfy "any reduction," at every board size.
+//   - Otherwise, with grinches > others already, no amount of PURELY
+//     defensive blocking (Elf's protect, Mrs's save, Yukon's shield) can
+//     ever change the outcome -- recurring or one-time, it can only ever
+//     hold the current ratio steady (at best) or let it decay (at worst);
+//     it can never IMPROVE it, and only an improved ratio lets a vote
+//     succeed. A losing count stays a losing count no matter how long the
+//     Grinches are held off. (Confirmed by hand-derivation and an exhaustive
+//     verification table across every board from 1v1 to 6v6, run before
+//     this replaced the earlier brute-force search -- see
+//     test/gac-sim/verify-grinch-win-model.mjs.)
+//   - The one case pure defense DOES matter: an EXACT tie (grinches ===
+//     others). Surviving just that one night preserves the tie into the
+//     very next vote, which then succeeds (>= threshold) and cascades from
+//     there. Any single blocking resource suffices -- Elf's protect and
+//     Mrs's save both require a living Other besides themselves to target
+//     (neither can protect/save themselves); Yukon's shield is inherently
+//     his own and needs no other target.
+export function gacChristmasHasPathToVictory(game){
+  const live = living(game);
+  const G = live.filter(p => p.team === "grinch").length;
+  const O = gacOpposition(live).length;
+
+  const mrs = live.find(p => p.roleId === "Mrs");
+  const belsnickel = live.find(p => p.roleId === "Belsnickel");
+  const buddy = live.find(p => p.roleId === "Buddy");
+  const shelf = live.find(p => p.roleId === "Shelf");
+  const yukon = live.find(p => p.roleId === "Yukon");
+
+  const hasOffense =
+    (mrs && mrs.powers && mrs.powers.mrsClausPoison) ||
+    !!belsnickel ||
+    (buddy && buddy.powers && buddy.powers.buddySwap);
+  if (hasOffense) return true;
+
+  if (G > O) return false;   // Grinches strictly ahead -- defense alone can never rescue this
+
+  // G === O: an exact tie -- any blocking resource that can actually fire
+  // preserves it into a vote that removes a Grinch.
+  return !!(
+    (shelf && O >= 2) ||
+    (mrs && mrs.powers && mrs.powers.mrsClausSave && O >= 2) ||
+    (yukon && yukon.shieldCount > 0)
+  );
 }
 
 export function checkWin(game, context){
@@ -217,10 +269,27 @@ export function checkWin(game, context){
   if (others.length === 0 && grinches.length > 0) return "grinch";
 
   // 3) Numeric parity — "majority" mode only, and only right after a vote.
-  //    Blocked while the Christmas team still has a night kill available, since
-  //    a tied board can still swing overnight.
+  //    Withheld while ANY of these still-open paths exist, checked in order:
+  //      a) a living cross-team lover pair -- lovers have their OWN win
+  //         condition (last two alive), so their mere existence means a
+  //         non-Grinch outcome is still possible. This is a simple
+  //         short-circuit; the reachability search below never needs to
+  //         reason about lovers at all.
+  //      b) Jack Frost alive -- his revenge kill lives in index.html, not
+  //         simulable here, so this is a hardcoded carve-out rather than
+  //         something the search can discover on its own.
+  //      c) otherwise, ask the reachability search: does Christmas have any
+  //         possible path left to zero out the Grinches?
   if (mode !== "total" && afterVote && grinches.length > 0 && grinches.length >= others.length){
-    if (!gacChristmasCanStillKill(game)) return "grinch";
+    const anyCrossTeamLoverPairAlive = live.some(p => {
+      if (!p.loverOf) return false;
+      const partner = live.find(x => x.id === p.loverOf);
+      return !!(partner && partner.team !== p.team);
+    });
+    const anyFrostAlive = live.some(p => p.roleId === "Frost");
+    if (!anyCrossTeamLoverPairAlive && !anyFrostAlive && !gacChristmasHasPathToVictory(game)){
+      return "grinch";
+    }
   }
 
   // 4) Keep playing.
@@ -238,9 +307,9 @@ export function checkWin(game, context){
 //   {
 //     protect:   playerId,            // Elf on the Shelf
 //     grinchKill: playerId,           // Grinches' agreed target
-//     krampusConvert: playerId,       // Krampus (the victim) or null
-//     mrsSave:   playerId,            // Mrs. Claus save target
-//     mrsPoison: playerId,            // Mrs. Claus poison target
+//     krampusConvert: true,           // Krampus: convert grinchKill's victim? (yes/no only -- not a separate target)
+//     mrsSave:   true,                // Mrs. Claus: save grinchKill's victim? (yes/no only -- not a separate target)
+//     mrsPoison: playerId,            // Mrs. Claus poison target (free choice)
 //     belsnickelKill: playerId,       // Belsnickel
 //     buddySwap: [playerIdA, playerIdB], // Buddy swaps two players' fates
 //   }
@@ -288,7 +357,11 @@ function gacReassignRole(game, player, newRoleId){
 // resolveNight. Logs to game.log / game.events directly.
 export function applyWetSteal(game, decisions){
   decisions = decisions || {};
-  if (!decisions.wetSteal || decisions._wetApplied) return;
+  // Night-1-only, same as Cupid -- a stale/late wetSteal decision on any
+  // later night is ignored. index.html's own gacStartNight() always sets
+  // game.nightNumber before either of its applyWetSteal() call sites fire,
+  // so this is a no-op for real night-1 play and only rejects stale input.
+  if (!decisions.wetSteal || decisions._wetApplied || game.nightNumber !== 1) return;
   decisions._wetApplied = true;
   if (!game.log) game.log = [];
   if (!game.events) game.events = [];
@@ -399,8 +472,9 @@ export function resolveNight(game, decisions){
   // Is this player's death currently blocked by the Elf's protection?
   const isProtected = (id) => { const p = byId(id); return !!(p && p.protectedThisNight); };
 
-  // 0) CUPID LINK (night 1) — bind two players as lovers before anything else.
-  if (decisions.cupidLink && decisions.cupidLink.length === 2){
+  // 0) CUPID LINK (night 1 ONLY) — bind two players as lovers before anything
+  //    else. Ignored on any later night (Cupid only ever wakes night 1).
+  if (decisions.cupidLink && decisions.cupidLink.length === 2 && game.nightNumber === 1){
     const [aId, bId] = decisions.cupidLink;
     const a = byId(aId), b = byId(bId);
     if (a && b && a.id !== b.id){
@@ -418,17 +492,39 @@ export function resolveNight(game, decisions){
     applyWetSteal(game, decisions);
   }
 
-  // 1) PROTECT (Elf on the Shelf)
+  // 1) PROTECT (Elf on the Shelf) — requires a living Shelf. Two illegal
+  //    targets are rejected rather than applied: protecting themselves, and
+  //    protecting the same player two nights running (manual). A rejected
+  //    target wastes the night's protection entirely (like a wasted Mrs.
+  //    Claus cookie) -- the Elf does NOT fall back to a different player.
   let protectedId = decisions.protect || null;
   if (protectedId){
+    const shelf = game.players.find(p => p.roleId === "Shelf" && p.alive);
     const p = byId(protectedId);
-    if (p){ p.protectedThisNight = true; p.lastProtectedNight = game.nightNumber; note(`Elf on the Shelf protects ${p.name}.`); event("Elf on the Shelf", gacFindHolder(game,"Shelf"), p.id, "protected"); }
+    if (shelf && p){
+      const isSelf = p.id === shelf.id;
+      // lastProtectedNight defaults to 0 ("never protected"), which would
+      // otherwise collide with night 1's "previous night" (also 0) and wrongly
+      // flag every night-1 protection as a repeat -- guard with nightNumber > 1.
+      const isRepeat = game.nightNumber > 1 && p.lastProtectedNight === game.nightNumber - 1;
+      if (!isSelf && !isRepeat){
+        p.protectedThisNight = true; p.lastProtectedNight = game.nightNumber;
+        note(`Elf on the Shelf protects ${p.name}.`);
+        event("Elf on the Shelf", shelf.id, p.id, "protected");
+      } else {
+        const why = isSelf ? "themselves" : "the same player two nights running";
+        note(`Elf on the Shelf's protection is wasted -- tried to protect ${why}.`);
+        event("Elf on the Shelf", shelf.id, p.id, "protect wasted");
+      }
+    }
   }
 
-  // 2) GRINCH KILL — record the attack. Whether it LANDS is decided at step 6b,
-  //    after Buddy has had his chance to swap seats.
+  // 2) GRINCH KILL — requires at least one living Grinch-team member; a stale
+  //    decision after they're all gone is silently ignored. Whether the kill
+  //    LANDS is decided at step 6b, after Buddy has had his chance to swap seats.
   if (decisions.grinchKill){
-    const target = byId(decisions.grinchKill);
+    const anyGrinchAlive = game.players.some(p => p.team === "grinch" && p.alive);
+    const target = anyGrinchAlive ? byId(decisions.grinchKill) : null;
     if (target){
       markKill(target.id, "grinch");
       note(`Grinches choose to kill ${target.name}.`);
@@ -485,17 +581,23 @@ export function resolveNight(game, decisions){
   // 4) MRS. CLAUS — save first (yes/no on the Grinches' victim), then poison.
   //    Her save is once-per-game and, like Krampus, it is SPENT when used even if
   //    it turns out the victim was never in danger (already protected by the Elf).
+  //    She CANNOT save herself (mirrors the Elf's own self-protect rule) --
+  //    a self-save attempt wastes the cookie same as an "never in danger" one.
   if (decisions.mrsSave){
     const mrs = game.players.find(p => p.roleId === "Mrs" && p.alive);
     const victimId = decisions.grinchKill;
     const tgt = victimId ? byId(victimId) : null;
     if (mrs && tgt && mrs.powers.mrsClausSave){
       mrs.powers.mrsClausSave = false;   // the cookie is USED either way
+      const isSelf = tgt.id === mrs.id;
       // "Never in danger" = no attack on them at all, OR the Elf already has them
       // covered. (Attacks are recorded up front now, so a pending mark alone
       // doesn't mean the attack will actually land.)
       const neverInDanger = !pending[tgt.id] || isProtected(tgt.id);
-      if (neverInDanger){
+      if (isSelf){
+        note(`Mrs. Claus cannot save herself -- the cookie is wasted.`);
+        event("Mrs. Claus", mrs.id, tgt.id, "save wasted");
+      } else if (neverInDanger){
         note(`Mrs. Claus offered ${tgt.name} a cookie, but they were never in danger — the cookie is wasted.`);
         event("Mrs. Claus", mrs.id, tgt.id, "save wasted");
       } else {
@@ -517,19 +619,29 @@ export function resolveNight(game, decisions){
   }
 
   // SANTA INSPECT — information only (no state change); recorded for the log and
-  // for mobile play where the result is shown privately to Santa.
+  // for mobile play where the result is shown privately to Santa. Once Santa
+  // dies, Scott Calvin inherits this nightly check (manual) -- attribute the
+  // log entry to whichever of them is actually alive to perform it.
   if (decisions.santaInspect){
     const tgt = byId(decisions.santaInspect);
-    if (tgt){ note(`Santa checks ${tgt.name}: ${tgt.team === "grinch" ? "naughty (Grinch)" : "nice (Christmas)"}.`); event("Santa Claus", gacFindHolder(game,"Santa"), tgt.id, tgt.team==="grinch"?"checked:naughty":"checked:nice"); }
+    if (tgt){
+      const actor = game.players.find(p => p.roleId === "Santa" && p.alive)
+                 || game.players.find(p => p.roleId === "Calvin" && p.alive);
+      const actorLabel = actor && actor.roleId === "Calvin" ? "Scott Calvin" : "Santa Claus";
+      note(`${actorLabel} checks ${tgt.name}: ${tgt.team === "grinch" ? "naughty (Grinch)" : "nice (Christmas)"}.`);
+      event(actorLabel, actor ? actor.id : null, tgt.id, tgt.team==="grinch"?"checked:naughty":"checked:nice");
+    }
   }
 
-  // 5) BELSNICKEL KILL
+  // 5) BELSNICKEL KILL — requires a living Belsnickel; a stale decision naming
+  //    one after he's dead is silently ignored (nobody performed it).
   if (decisions.belsnickelKill){
-    const target = byId(decisions.belsnickelKill);
+    const bels = game.players.find(p => p.roleId === "Belsnickel" && p.alive);
+    const target = bels ? byId(decisions.belsnickelKill) : null;
     if (target){
       markKill(target.id, "belsnickel");
       note(`Belsnickel kills ${target.name}.`);
-      event("Belsnickel", gacFindHolder(game,"Belsnickel"), target.id, "attacked");
+      event("Belsnickel", bels.id, target.id, "attacked");
     }
   }
 

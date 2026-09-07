@@ -1,0 +1,9 @@
+{
+  "name": "one-night-before-christmas",
+  "private": true,
+  "type": "module",
+  "description": "No build step for the site itself. This file exists only so Node can run the test harness under test/gac-sim (it treats .js files as ES modules, matching gac-engine.js's import/export syntax). Browsers and GitHub Pages ignore this file entirely.",
+  "scripts": {
+    "test:gac": "node test/gac-sim/run.mjs"
+  }
+}
