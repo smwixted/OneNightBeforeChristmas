@@ -472,7 +472,7 @@ export function startHostVoting({ settings, votingEnabled, getCheatData, voteAud
   // The host's cheat sheet button only appears if they're also a player AND
   // cheat sheets are allowed during the vote — otherwise the host is just the
   // narrator and gets the plain timer screen.
-  const hostGetsCheat = !!settings.mpHostPlayer && !!settings.mpCheat;
+  const hostGetsCheat = !!settings.mpHostPlayer && (isGac ? !!settings.gacCheatDay : !!settings.mpCheat);
   if (hostGetsCheat) cheat.showBtn();
 
   // The host now uses the SAME full-screen vote layout as players (blue panel,
@@ -494,7 +494,7 @@ export function startHostVoting({ settings, votingEnabled, getCheatData, voteAud
     room, hostName,
     hostIsPlayer: !!settings.mpHostPlayer,
     showVotesCast: !!settings.mpShowVotes,
-    allowCheat: !!settings.mpCheat,
+    allowCheat: isGac ? !!settings.gacCheatDay : !!settings.mpCheat,
     votingEnabled: voting,
     getPresentPlayers,
     audioEl: voteAudioEl,
@@ -640,7 +640,10 @@ export function startHostVoting({ settings, votingEnabled, getCheatData, voteAud
 
   function renderResolved(data) {
     cancelAnimationFrame(timerRaf);
-    cheat.showBtn();   // cheat sheet always available on the results screen
+    // ONBC: cheat sheet always available on the results screen (unchanged).
+    // GAC: gated by gacCheatDay, same as the rest of the day phase.
+    if (isGac) { if (hostGetsCheat) cheat.showBtn(); else cheat.hideBtn(); }
+    else cheat.showBtn();
     layer.classList.add("show");
     wrap.innerHTML = "";
     renderResultsInto(wrap, data.results);
@@ -730,6 +733,10 @@ export function startPlayerClient(code) {
   function hideNudge(){ nudgeBanner.classList.remove("show"); }
 
   let room = null, myName = null, cheatData = { wakeOrder:[], nonWaking:[], standaloneTokens:[], presentTokens:[] }, cheat = null, timerRaf = null, lastVoteMsg = null;
+  // Tracks whether the cheat-sheet button was last shown, so mpCloseLogOverlay
+  // can restore the right state instead of always unhiding it. Defaults true to
+  // match every existing unconditional-show call site (ONBC never changes this).
+  let cheatWasVisible = true;
   let presentList = [], onWaitingScreen = false, hostIsPlayer = true, hostDisplayName = null;
 
   const prior = loadSession();
@@ -1440,7 +1447,12 @@ export function startPlayerClient(code) {
     // reveals it.
     const _resultsHidden = !!(s.resultsHidden && s.resultsRecipient && s.resultsRecipient !== myName);
     if (!_resultsHidden) mpSyncEliminatedFrom(s);
-    if (cheat) cheat.showBtn();
+    // gacCheatDay gates the cheat sheet across the whole GAC day phase
+    // (discussion, vote, and results) — s.allowCheatDay is broadcast by the
+    // host alongside the rest of the day summary. Default true only if the
+    // field is ever absent (older host build sending no such field).
+    cheatWasVisible = (s.allowCheatDay !== false);
+    if (cheat) { if (cheatWasVisible) cheat.showBtn(); else cheat.hideBtn(); }
     wrap.innerHTML = "";
     wrap.append(el("div", { className: "mpH", textContent: `Day ${s.night||""} — Results` }));
 
@@ -1661,7 +1673,12 @@ export function startPlayerClient(code) {
   function mpCloseLogOverlay(){
     if (mpLogOverlayEl) mpLogOverlayEl.classList.remove("show");
     if (mpGameLogBtnEl) mpGameLogBtnEl.style.visibility = "";
-    if (cheat) cheat.showBtn();
+    // ONBC: cheat sheet always restored (unchanged). GAC: restore whatever
+    // gacCheatDay/the current day state last decided, not an unconditional show.
+    if (cheat) {
+      if (cheatData.game === "gac") { if (cheatWasVisible) cheat.showBtn(); else cheat.hideBtn(); }
+      else cheat.showBtn();
+    }
     if (mpDeadBannerEl) mpDeadBannerEl.style.visibility = "";
     // NOTE: we deliberately do NOT re-render the screen underneath — it's still
     // there exactly as the player left it.
@@ -2325,11 +2342,16 @@ export function startPlayerClient(code) {
     if (!countdown) myPick = null;
     wrap.innerHTML = "";
 
+    // Record whether cheat is currently visible, so mpCloseLogOverlay can
+    // restore the right state later instead of always unhiding it.
+    cheatWasVisible = !!allowCheat;
+
     // If an eligible-voter list was sent and this player isn't on it, they've
     // been eliminated — show a spectator screen, not a ballot.
     const amEliminated = Array.isArray(eligible) && !eligible.includes(myName);
     if (amEliminated){
       mpSetEliminated(true);   // raise the standing banner for the rest of the game
+      cheatWasVisible = false;   // eliminated players never get it back via the log overlay
       if (cheat) cheat.hideBtn();
       wrap.append(el("div", { className: "mpH", textContent: "You've been eliminated" }));
       wrap.append(el("div", { className: "mpSub", textContent: countdown ? "The vote is closing…" : "Sit tight and watch the vote play out." }));
@@ -2421,11 +2443,16 @@ export function startPlayerClient(code) {
   }
 
   function renderResults(r) {
-    if (cheat) cheat.showBtn();
+    // ONBC: cheat sheet always available here (unchanged). GAC: gated by
+    // gacCheatDay, same as the rest of the day phase.
+    const showCheatHere = (cheatData.game === "gac") ? cheatWasVisible : true;
+    if (cheat) { if (showCheatHere) cheat.showBtn(); else cheat.hideBtn(); }
     cancelAnimationFrame(timerRaf);
     wrap.innerHTML = "";
     renderResultsInto(wrap, r);
-    wrap.append(el("div", { className: "mpSub", textContent: "Waiting for the next game… (cheat sheet stays available)" }));
+    wrap.append(el("div", { className: "mpSub",
+      textContent: showCheatHere ? "Waiting for the next game… (cheat sheet stays available)"
+                                  : "Waiting for the next game…" }));
   }
 
   function sessionEnded() {

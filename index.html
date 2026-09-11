@@ -1333,7 +1333,7 @@ import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpCo
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
          gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles }
-  from "./multiplayer-ui.js?v=206";
+  from "./multiplayer-ui.js?v=207";
 import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
 
 // ---------- PLAYER JOIN MODE ----------
@@ -3725,7 +3725,7 @@ function gacCheatData(){
     else wakeOrder.push(calvinEntry);
     calvinEntry = null;
   }
-  return { wakeOrder, nonWaking, standaloneTokens: [], presentTokens: [] };
+  return { wakeOrder, nonWaking, standaloneTokens: [], presentTokens: [], game: "gac" };
 }
 document.getElementById("gacSetupPlayers").onclick = () => {
   // "Don't track players" — the app isn't tracking roles at all, so there's no
@@ -5696,7 +5696,7 @@ function gacOpenTracker(report){
   gacShowTrackHostCard();
   // Keep the host cheat sheet available on the day tracker (a vote can hide its
   // own cheat instance; restore the tracker's here).
-  if (settings.mpHostPlayer && settings.mpCheat){ try { const c = gacEnsureHostCheat(); if (c) c.showBtn(); } catch(_){} }
+  if (settings.mpHostPlayer && settings.gacCheatDay){ try { const c = gacEnsureHostCheat(); if (c) c.showBtn(); } catch(_){} }
   // Broadcast FIRST. This decides who receives tonight's results and sets
   // gacPendingShareSummary — which the host's own UI below depends on. (Running
   // it last meant the host always saw the results and never got a share button.)
@@ -5894,6 +5894,9 @@ function gacBroadcastDaySummary(report, opts){
   // player sees the self-eliminate button — that way it doesn't reveal who
   // actually holds the gimmick role.
   payload.gimmickInPlay = gacGame.players.some(p => (p.roleId === "BadSanta" || p.roleId === "Scrooge"));
+  // Tells each phone whether the cheat sheet is allowed during the day
+  // (discussion + vote + results) for this game — see gacCheatDay setting.
+  payload.allowCheatDay = !!settings.gacCheatDay;
   // Who holds Sam this game. Sam is the moderator and sees the whole game, so
   // their phone unlocks the FULL game log (everyone else gets the simple one).
   try { const _sam = gacSamPlayer(); payload.samName = _sam ? _sam.name : null; } catch(_){ payload.samName = null; }
