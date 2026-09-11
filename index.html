@@ -1872,16 +1872,13 @@ function gacBuildSteps(night){
       // prompt's audio) so the choose screen opens WITH the audio playing —
       // instead of a silent line first, then a silent decision.
       if (decision){
-        if (gacDecisionActive(decision)){
+        if (gacDecisionWasInPlay(decision)){
+          // Role selected for this game — always a real "decision" step.
+          // Whether it's actionable RIGHT NOW (live holder vs. dead/spent/in
+          // the center) can change mid-night via a Wet Bandits steal, so it's
+          // decided fresh in gacRenderLine() when this beat is actually
+          // reached, not baked in here at night-start.
           steps.push({ type:"decision", key: decision, img, text, audio: gacAudioFor(text) });
-        } else if (gacDecisionWasInPlay(decision) || gacDecisionInCenter(decision) || gacDecisionSpent(decision)){
-          // The role is SELECTED but no living player can act on it right now —
-          // its holder died, its power is spent, or the card sits in the center.
-          // In every one of those cases we still read the REAL prompt aloud and
-          // pace it like a live decision (no input), so the table can never deduce
-          // which roles are gone by hearing a beat go silent or get skipped.
-          steps.push({ type:"decision", key: decision, img, text, audio: gacAudioFor(text), centerRole:true,
-                       noInputReason: gacCenterRoleReason(decision) });
         } else {
           // Role not selected for this game at all → just read the line (no decision).
           steps.push({ type:"line", text, img, audio:gacAudioFor(text) });
@@ -2116,24 +2113,18 @@ function gacRenderLine(){
   const isLast = (gacIdx === gacSteps.length - 1);
   if (!step){ gacNarrLine.innerHTML = ""; gacClearAutoTimers(); return; }
 
-  // BUDDY-VIA-WET: the Buddy card can change hands via a Wet Bandit steal — Wet
-  // may take Buddy, or the player Wet stole from may RECEIVE Buddy from the center
-  // as their replacement. Either way the new holder should act as Buddy. The steal
-  // normally applies at the end-of-night card check, but Buddy is the last role
-  // beat (after Wet), so applying it here is safe and lets the current holder act.
-  if (step.type === "decision" && step.key === "buddySwap" && step.centerRole
-      && gacGame && gacNightDecisions && gacNightDecisions.wetSteal
-      && !gacNightDecisions._wetApplied && !gacDecisionActive("buddySwap")){
-    try {
-      const before = gacSnapshotRoles();
-      applyWetSteal(gacGame, gacNightDecisions);   // idempotent — resolveNight won't repeat it
-      try { gacPushChangedCards(before); } catch(_){}
-      try { gacShowTrackHostCard(); } catch(_){}
-    } catch(_){}
-    if (gacDecisionActive("buddySwap")){
-      step.centerRole = false;      // a living player now holds Buddy → real decision
-      step.noInputReason = "";
-    }
+  // A decision beat's "is this actually actionable right now" status can
+  // change mid-night — a Wet Bandits steal (Night 1 only) can pull a role
+  // out of the center into a living player's hands, or take a role away
+  // from its holder, after gacBuildSteps() already ran. cardCheck (which
+  // applies the steal) sits earlier in the script than every affected beat,
+  // so by the time any of them is reached here, gacGame already reflects
+  // the post-steal state — just re-ask the same live functions instead of
+  // trusting whatever was true when the night's steps were first built.
+  if (step.type === "decision"){
+    step.centerRole = !gacDecisionActive(step.key)
+      && (gacDecisionWasInPlay(step.key) || gacDecisionInCenter(step.key) || gacDecisionSpent(step.key));
+    step.noInputReason = step.centerRole ? gacCenterRoleReason(step.key) : "";
   }
 
   // Character portrait for this beat's role (hidden on universal beats).
