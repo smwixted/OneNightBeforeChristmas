@@ -1199,6 +1199,7 @@
         <div id="gacTrackHostDesc"></div>
         <button id="gacTrackSelfElim" type="button" style="display:none">💀 I broke my rule — eliminate me</button>
       </div>
+      <div id="gacTrackScroogeBtn" style="display:none;margin:0 0 10px"></div>
       <div id="gacTrackListRow">
         <div id="gacTrackList"></div>
         <p class="gacSetupHint" id="gacTrackHint">Tap a player to the left to toggle eliminated if you need to correct the roster.</p>
@@ -1519,6 +1520,9 @@ let gacSamPickedInline = "";
 let gacAwaitingSamSettings = false;   // waiting on Sam to reply from the Sam Settings screen
 let gacSamSettingsShown = false;      // Sam Settings already presented this game (don't re-gate Night 1)
 let gacPendingNight1 = false;         // Night 1 is waiting on Sam Settings to finish
+let gacBadSantaCheckedNight = 0;      // last night number this check already fired for (0 = never)
+let gacBadSantaResumeNight = 0;       // which night to resume into once answered
+let gacAwaitingBadSantaCheck = false; // guards against a stray/duplicate reply re-triggering the resume
 function applyDefaults(target){
   for (const k in DEFAULT_SETTINGS){
     if (target[k] === undefined) target[k] = DEFAULT_SETTINGS[k];
@@ -1616,6 +1620,7 @@ function gacRevealPendingResults(){
       gacShowWinIfAny({ afterVote: gacVoteJustHeld });
       gacRenderTrackList();
       gacUpdateHostDeadBanner();   // host's own elimination can surface now
+      gacUpdateScroogeButton();
     }
   } catch(_){}
   return true;
@@ -2005,7 +2010,9 @@ function gacStreamDayToSam(){
   // (players + events) in this payload — Sam's Game Log button reads from here.
   const samLogPlayers = gacGame.players.filter(p => p.roleId !== "Sam").map(p => ({
     id: p.id, name: p.name, alive: p.alive,
+    startRoleId: p.startRoleId || p.roleId,
     role: (GAC_ROSTER.find(r => r.id === p.roleId) || {}).name || "",
+    startRole: (GAC_ROSTER.find(r => r.id === (p.startRoleId || p.roleId)) || {}).name || "",
     team: p.team || "",
     converted: !!(p.converted || (p.team === "grinch" && p.startTeam && p.startTeam !== "grinch")),
   }));
@@ -2018,6 +2025,16 @@ function gacStreamDayToSam(){
   const out = gacGame.players.filter(p => !p.alive && p.roleId !== "Sam").map(p => p.name);
   const deaths = gacLastNightReport && gacLastNightReport.deaths ? gacLastNightReport.deaths.map(d => d.name) : [];
   const resultsShareable = !gacVoteJustHeld;   // overnight results can be shared; post-vote is already public
+  // Fully-resolved Scrooge control content, or null — Sam's phone displays
+  // exactly this, never re-derives eligibility or re-types any wording.
+  const scroogeP = gacScroogeEligible();
+  const scroogeControl = scroogeP ? {
+    playerName: scroogeP.name,
+    label: GAC_SCROOGE_SPEC.label,
+    subtitleText: GAC_SCROOGE_SPEC.subtitleText,
+    confirmText: GAC_SCROOGE_SPEC.confirmText,
+    ruleText: gacScroogeRuleText(),
+  } : null;
   try {
     gacSendInfo(samName, {
       samDay: true,
@@ -2030,6 +2047,7 @@ function gacStreamDayToSam(){
       voteHeld: !!gacVoteJustHeld,   // has a vote already been applied this day?
       mobileVoting: !!settings.mpEnabled,   // offer Sam a phone-vote button
       resultsShareable,
+      scroogeControl,
       samName,                       // so the phone knows this device is Sam
       samLogPlayers, samLogEvents,   // full log data for Sam's Game Log button
       samLog: (gacGame.log || []).map(e => ({ night:e.night, type:e.type, name:e.name, source:e.source, msg:e.msg })),
@@ -2387,6 +2405,30 @@ function gacStartNight(night){
     else { gacSyncSamSettingsUI(); document.getElementById("gacSamSettings").style.display = "block"; }
     return;   // Night 1 resumes from gacSamSettingsDone / Sam's reply
   }
+  // Bad Santa's rule ("must say 'Grinch' daily") can only be judged once the
+  // day it covers is over — ask privately, right here at the start of the
+  // NEXT night, before any spoken beat. Never asked for Night 1 (no day 0
+  // to have judged). Silent: this never touches gacSteps/gacSpeakStep, so
+  // it's never narrated and never seen by any other player.
+  if (night > 1 && gacBadSantaCheckedNight !== night && gacGame){
+    const badSanta = gacGame.players.find(p => p.roleId === "BadSanta" && p.alive);
+    if (badSanta){
+      gacBadSantaCheckedNight = night;
+      gacBadSantaResumeNight = night;
+      const samName = gacSamOnPhone();
+      if (samName){
+        gacAwaitingBadSantaCheck = true;
+        try { gacSendInfo(samName, { badSantaCheck:true, playerName: badSanta.name }); } catch(_){}
+      } else {
+        gacShowBadSantaCheck(badSanta.name);
+      }
+      return;   // Night resumes from gacResolveBadSantaCheck (host) or the
+                // onGacChoice "badSantaCheck" reply (Sam) — see below. BOTH
+                // paths call gacResolveBadSantaCheck, which ALWAYS calls
+                // gacStartNight(gacBadSantaResumeNight) regardless of the
+                // answer — a "Yes" must resume the night exactly like a "No".
+    }
+  }
   gacNight = night;
   try { WakeLock.acquire(); } catch(_){}       // keep the screen awake through the night
   gacNightInterrupted = false;                // starting a night clears the interrupt flag
@@ -2719,6 +2761,48 @@ function gacRegisterNudgeHandler(){
 // A result the host is holding the night open for until a player acknowledges
 // it (e.g. Santa tapping "Done" after seeing naughty/nice). Null when not waiting.
 let gacAwaitingAck = null;
+// Eliminate a player for breaking their gimmick-role rule (Bad Santa /
+// Scrooge) — single source of truth for the cause + smart-log event, used
+// whether the report came from the player's own phone (self-report), the
+// host tracker, or a non-host Sam's phone. `actorId:null` is deliberate:
+// this event never records who reported it, only who and why.
+// Host-is-narrator case: a private, synchronous Yes/No on the host's own
+// device only — native confirm() is deliberate here, not a placeholder:
+// it's never shown to any player, needs no narration, and needs no new
+// markup. (Happy to swap in a styled modal later if you'd rather.)
+function gacShowBadSantaCheck(playerName){
+  const saidGrinch = confirm(`Did ${playerName} (Bad Santa) say the word "Grinch" at all during the day?\n\nOK = Yes, they said it.\nCancel = No, they didn't.`);
+  gacResolveBadSantaCheck(saidGrinch);
+}
+// Single resolution point for BOTH the host's own answer and Sam's phone
+// reply. MUST call gacStartNight on every path, regardless of the answer —
+// this is the only thing standing between "No" and "Yes" ever hanging the
+// night. Eliminating on "No" happens first so the broadcasted day summary
+// (inside gacApplyBrokenRule, if it were mid-day) or the fresh night build
+// (here) reflects it either way.
+function gacResolveBadSantaCheck(saidGrinch){
+  const resumeNight = gacBadSantaResumeNight;
+  if (!saidGrinch){
+    const badSanta = gacGame ? gacGame.players.find(p => p.roleId === "BadSanta" && p.alive) : null;
+    if (badSanta) gacApplyBrokenRule(badSanta.name);
+  }
+  gacStartNight(resumeNight);
+}
+function gacApplyBrokenRule(name){
+  if (!gacGame) return false;
+  const pl = gacGame.players.find(p => p.name === name && p.alive);
+  if (!pl) return false;
+  try { eliminate(gacGame, pl.id, "broke their rule"); } catch(_){}
+  if (!gacGame.events) gacGame.events = [];
+  gacGame.events.push({ night: gacNight, power:"Self-Eliminate", actorId:null, targetId: pl.id, result:"broke rule" });
+  if (gacTracker && gacTracker.style.display !== "none"){
+    gacRenderTrackList(); gacShowWinIfAny({ afterVote: gacVoteJustHeld });
+    try { gacUpdateScroogeButton(); } catch(_){}   // hides promptly if Scrooge was the one eliminated
+  }
+  try { gacStreamDayToSam(); } catch(_){}   // keep a non-host Sam's copy in lockstep too
+  gacBroadcastDaySummary(null, gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : null);
+  return true;
+}
 let gacAckHandlerSet = false;
 function gacRegisterAckHandler(){
   if (gacAckHandlerSet || !gacSessionActive()) return;
@@ -2767,6 +2851,7 @@ function gacRegisterAckHandler(){
             gacRenderTrackResult(gacLastNightReport || null);
             gacShowWinIfAny({ afterVote: gacVoteJustHeld });
             gacRenderTrackList();
+            gacUpdateScroogeButton();   // hides now that gacResultsShared is true
           }
         } catch(_){}
         return;
@@ -2836,17 +2921,12 @@ function gacRegisterAckHandler(){
         gacStartNight(gacNight + 1);
       }
     });
-    // A gimmick-role player (Bad Santa / Scrooge) eliminated themselves.
+    // A gimmick-role player (Bad Santa / Scrooge) broke their rule — either
+    // self-reported from their own phone, or recorded by whoever's running
+    // the game (host tracker button, Sam's phone) on their behalf.
     onGacSelfElim((payload) => {
-      if (!payload || !payload.from || !gacGame) return;
-      const pl = gacGame.players.find(p => p.name === payload.from && p.alive);
-      if (!pl) return;
-      try { eliminate(gacGame, pl.id, "broke their rule"); } catch(_){}
-      if (!gacGame.events) gacGame.events = [];
-      gacGame.events.push({ night: gacNight, power:"Self-Eliminate", actorId:null, targetId: pl.id, result:"broke rule" });
-      // Refresh the tracker if it's open, re-check win, and update phones.
-      if (gacTracker && gacTracker.style.display !== "none"){ gacRenderTrackList(); gacShowWinIfAny({ afterVote: gacVoteJustHeld }); }
-      gacBroadcastDaySummary(null, gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : null);
+      if (!payload || !payload.from) return;
+      gacApplyBrokenRule(payload.from);
     });
     gacAckHandlerSet = true;
   } catch(_){}
@@ -2875,6 +2955,15 @@ function gacRegisterPhoneHandler(){
         if (begin){ begin.disabled = false; begin.textContent = "▶ Begin Night 1"; }
         if (gacPendingNight1){ gacPendingNight1 = false; gacStartNight(1); return; }
         gacContinueBeginAfterSam();
+        return;
+      }
+      // Sam answered the private Bad Santa check. Resolve on EITHER answer —
+      // gacResolveBadSantaCheck always calls gacStartNight, so the night can
+      // never stall waiting on a "Yes" the same way it wouldn't on a "No".
+      if (key === "badSantaCheck"){
+        if (!gacAwaitingBadSantaCheck) return;   // stray/duplicate reply — ignore
+        gacAwaitingBadSantaCheck = false;
+        gacResolveBadSantaCheck(payload.value === "yes");
         return;
       }
       // Sam finished assigning the physical cards on their phone. payload.value is
@@ -3635,12 +3724,7 @@ function gacShowTrackHostCard(){
       delete seBtn.dataset.confirm;
       seBtn.onclick = () => {
         if (seBtn.dataset.confirm === "1"){
-          try { eliminate(gacGame, me.id, "broke their rule"); } catch(_){}
-          if (!gacGame.events) gacGame.events = [];
-          gacGame.events.push({ night: gacNight, power:"Self-Eliminate", actorId:null, targetId: me.id, result:"broke rule" });
-          gacRenderTrackList();
-          gacShowWinIfAny({ afterVote: gacVoteJustHeld });
-          gacBroadcastDaySummary(null, gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : null);
+          gacApplyBrokenRule(me.name);
           gacShowTrackHostCard();   // refresh (button hides now that host is out)
         } else {
           seBtn.dataset.confirm = "1";
@@ -5639,6 +5723,63 @@ function gacApplyUntrackedDayLayout(){
     setTimeout(finish, 3900);   // fallback just past the 3.6s flight
   };
 })();
+// Persistent "Eliminate Ebenezer Scrooge" narrator control — visible on the
+// host tracker throughout the day while Scrooge's CURRENT holder (resolved
+// live, so a card moved by a Wet steal is still tracked correctly) is
+// alive. Deliberately independent of gacShowTrackHostCard()'s many
+// host-card-specific early returns (host not playing, physical deal, a
+// non-host Sam running, etc.) — this eliminates someone ELSE, not the host,
+// so none of those conditions should hide it.
+// Single source of truth for the Scrooge narrator control — content AND
+// eligibility. The host reads this directly; Sam's phone never holds a
+// second copy of any of it — gacStreamDayToSam() sends the fully-resolved
+// content below, so there's nothing on the phone side left to drift.
+const GAC_SCROOGE_SPEC = {
+  roleId: "Scrooge",
+  label: "🙅 Eliminate Ebenezer Scrooge",
+  subtitleText: "Broke the rule",
+  confirmText: "Tap again to confirm — this eliminates him",
+};
+// Reuses GAC_ROSTER's existing Scrooge `desc` ("May only mumble or say
+// \"BAH HUMBUG\" all game...") rather than writing a second copy of the
+// same rule text — that field is already canonical elsewhere in the app.
+function gacScroogeRuleText(){
+  return (GAC_ROSTER.find(r => r.id === "Scrooge") || {}).desc || "";
+}
+// The ONE gating rule: current holder alive, active play (not
+// results-shared/game-over). Returns the player, or null.
+function gacScroogeEligible(){
+  if (!gacGame || gacResultsShared) return null;
+  return gacGame.players.find(p => p.roleId === GAC_SCROOGE_SPEC.roleId && p.alive) || null;
+}
+function gacUpdateScroogeButton(){
+  const box = document.getElementById("gacTrackScroogeBtn");
+  if (!box) return;
+  const scrooge = gacScroogeEligible();
+  // Hides once results are shared, same gate the player self-report button
+  // already uses — a present-but-inert button would just confuse whoever's
+  // running the game, so it disappears rather than graying out.
+  if (!scrooge){
+    box.style.display = "none"; box.innerHTML = ""; delete box.dataset.confirm;
+    return;
+  }
+  box.style.display = "block";
+  box.innerHTML = `<button type="button" id="gacTrackScroogeElim" class="gacGhostBtn" style="width:100%">${GAC_SCROOGE_SPEC.label}</button>
+    <div style="text-align:center;margin-top:4px;opacity:.85">${scrooge.name} — <i>${GAC_SCROOGE_SPEC.subtitleText}</i>
+      <button type="button" id="gacTrackScroogeInfo" title="What's the rule?" style="margin-left:6px">❓</button>
+    </div>`;
+  const elimBtn = document.getElementById("gacTrackScroogeElim");
+  elimBtn.onclick = () => {
+    if (box.dataset.confirm === "1"){
+      gacApplyBrokenRule(scrooge.name);
+    } else {
+      box.dataset.confirm = "1";
+      elimBtn.textContent = GAC_SCROOGE_SPEC.confirmText;
+    }
+  };
+  const infoBtn = document.getElementById("gacTrackScroogeInfo");
+  infoBtn.onclick = () => { alert(gacScroogeRuleText()); };
+}
 function gacUpdateHostShareResults(){
   const slot = document.getElementById("gacHostShareResults");
   if (!slot) return;
@@ -5700,6 +5841,7 @@ function gacOpenTracker(report){
   // the joined players get. Only on the day tracker — not during narration.
   gacUpdateHostDeadBanner();
   gacUpdateHostShareResults();   // host-held night results get a share button
+  gacUpdateScroogeButton();      // "Eliminate Ebenezer Scrooge" narrator control
   gacApplyUntrackedDayLayout();  // moon-button day screen when not tracking
   gacShowWinIfAny({ afterVote: gacVoteJustHeld });   // surface a win if the game ended
   gacUpdateTrackControls();
@@ -5760,6 +5902,8 @@ function gacCheckJackFrostRevenge(){
     gacRenderTrackList();
     gacShowWinIfAny({ afterVote: gacVoteJustHeld });
     gacUpdateTrackControls();
+    try { gacUpdateScroogeButton(); } catch(_){}   // Frost's target could be Scrooge
+    try { gacStreamDayToSam(); } catch(_){}
     // Tell EVERYONE who Jack Frost took down.
     gacBroadcastDaySummary(null, { frostTookDown: pl.name });
     if (wrapEl) wrapEl.innerHTML = `❄️ Jack Frost took <b>${pl.name}</b> down with him.`;
@@ -5896,7 +6040,9 @@ function gacBroadcastDaySummary(report, opts){
   if (payload.samName){
     payload.samLogPlayers = gacGame.players.filter(p => p.roleId !== "Sam").map(p => ({
       id: p.id, name: p.name, alive: p.alive,
+      startRoleId: p.startRoleId || p.roleId,
       role: (GAC_ROSTER.find(r => r.id === p.roleId) || {}).name || "",
+      startRole: (GAC_ROSTER.find(r => r.id === (p.startRoleId || p.roleId)) || {}).name || "",
       team: p.team || "",
       converted: !!(p.converted || (p.team === "grinch" && p.startTeam && p.startTeam !== "grinch")),
     }));
@@ -5966,23 +6112,21 @@ function gacBuildSimpleLog(){
   const out = [];
   gacGame.log.forEach(e => {
     if (e.type === "death"){
+      // Every overnight death cause (Grinch kill, Belsnickel, poison, heartbreak,
+      // Jack Frost, tie-vote, broke-their-rule) reads IDENTICALLY here — no
+      // cause word, no distinguishing icon. Vote-off is the one exception (the
+      // vote happens in the open at the table, so naming it leaks nothing new).
+      // Host adjustment also stays distinguished — it's a host correction, not
+      // a game-mechanism cause, so it reveals no hidden role.
       let via = "was eliminated";
       if (e.source === "vote") via = "was voted out";
       else if (e.source === "host adjustment") via = "was removed (host adjustment)";
-      else if (e.source === "broke their rule") via = "was eliminated (broke their rule)";
-      else if (e.source === "jack frost") via = "was taken down by Jack Frost";
-      else if (e.source === "heartbreak" || e.source === "lover") via = "died of heartbreak";
-      else if (e.source && /charlie brown|tie/i.test(e.source)) via = "was eliminated (tie vote)";
       let icon = "💀";
       if (e.source === "vote") icon = "🗳️";
       else if (e.source === "host adjustment") icon = "✏️";
-      else if (e.source === "heartbreak" || e.source === "lover") icon = "💔";
-      else if (e.source && /charlie brown|tie/i.test(e.source)) icon = "⚖️";
       out.push({ night: e.night, text: `${icon} ${e.name} ${via}.` });
     } else if (e.type === "note" && /host adjustment/i.test(e.msg||"")){
       out.push({ night: e.night, text: e.msg });
-    } else if (e.type === "swap" || (e.msg && /swap/i.test(e.msg))){
-      out.push({ night: e.night, text: `🔄 ${e.msg || "Buddy swapped two players."}` });
     }
   });
   return out;
@@ -6098,6 +6242,8 @@ function gacRenderTrackList(){
     }
     gacRenderTrackList();
     gacShowWinIfAny({ afterVote: gacVoteJustHeld });
+    try { gacUpdateScroogeButton(); } catch(_){}   // a manual roster correction can toggle Scrooge too
+    try { gacStreamDayToSam(); } catch(_){}
     gacBroadcastDaySummary(null, gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : null);
   };
   // Show the character alongside names ONLY when the host is the narrator who
@@ -6436,6 +6582,8 @@ function gacApplyVoteResult(result){
                                  heartbreak: heartbreak.length ? heartbreak : null });
   gacShowWinIfAny({ afterVote: true });
   gacCharlieDied = null;
+  try { gacUpdateScroogeButton(); } catch(_){}   // a vote (or the Charlie Brown tie) can eliminate Scrooge too
+  try { gacStreamDayToSam(); } catch(_){}
   gacUpdateTrackControls();
   gacCheckJackFrostRevenge();
 }

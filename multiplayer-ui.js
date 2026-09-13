@@ -1014,6 +1014,30 @@ export function startPlayerClient(code) {
     };
     wrap.append(begin);
   }
+  // Private Bad Santa check on Sam's phone — a private Yes/No, not a script
+  // beat: never touches narration/audio, and this screen is never shown to
+  // any other player. The host's own equivalent (when the host is running
+  // the night, not a dealt Sam) is a plain confirm() on their own device.
+  function showBadSantaCheck(p){
+    hideNudge();
+    onWaitingScreen = false;
+    wrap.innerHTML = "";
+    wrap.append(el("div", { className:"mpH", textContent:"🌙 Before the night begins…" }));
+    wrap.append(el("div", { className:"mpSub", style:"text-align:center;opacity:.85;margin-top:-4px",
+      textContent:`Did ${p.playerName} (Bad Santa) say the word "Grinch" at all during the day?` }));
+    const row = el("div", { style:"display:flex;gap:8px;margin-top:16px" });
+    const answer = (val) => {
+      try { if (room) room.send("gac_choice", { key:"badSantaCheck", value: val, from: myName }); } catch(_){}
+      wrap.innerHTML = "";
+      wrap.append(el("div", { className:"mpSub", textContent:"Sent — starting the night…" }));
+    };
+    const yesBtn = el("button", { className:"mpBtn gac", style:"flex:1", textContent:"Yes" });
+    yesBtn.onclick = () => answer("yes");
+    const noBtn = el("button", { className:"mpBtn gac", style:"flex:1;background:#b3261e;color:#fff", textContent:"No" });
+    noBtn.onclick = () => answer("no");
+    row.append(yesBtn, noBtn);
+    wrap.append(row);
+  }
   // Sam Settings on Sam's phone: pace / input / choices. Sam picks and taps Begin,
   // which replies to the host to apply the settings and start the night.
   let samSettingsState = null;
@@ -1096,7 +1120,8 @@ export function startPlayerClient(code) {
     samDayControls = { living:(p.living||[]).slice(), hasCharlie:!!p.hasCharlie,
                        voteTimerMs: p.voteTimerMs||0, voteHeld:!!p.voteHeld, night:p.night||"",
                        mobileVoting: !!p.mobileVoting,
-                       logPlayers: (p.samLogPlayers||[]).slice() };
+                       logPlayers: (p.samLogPlayers||[]).slice(),
+                       scroogeControl: p.scroogeControl || null };
     // The samDay info payload also carries the full log data — wire the log button.
     if (p.samLogPlayers || p.samLogEvents){
       const logSrc = Object.assign({}, p, { resultsHidden:false });
@@ -1154,6 +1179,36 @@ export function startPlayerClient(code) {
 
     // If the game is over, no vote/next-night controls — just the results above.
     const gameOver = !!(s && s.win && s.win !== "coinpending");
+
+    // Persistent "Eliminate Ebenezer Scrooge" narrator control. Every piece
+    // of content here (label/subtitle/confirm text/rule text) comes from
+    // c.scroogeControl, fully resolved by the host (gacStreamDayToSam) —
+    // nothing is re-derived or re-typed on this side, so it can't drift
+    // from the host tracker's version.
+    const sc = c && c.scroogeControl;
+    if (!gameOver && sc){
+      const scroogeBox = el("div", { style:"margin-top:14px;text-align:center" });
+      const scroogeBtn = el("button", { className:"mpBtn gac full", textContent: sc.label });
+      scroogeBtn.onclick = () => {
+        if (scroogeBox.dataset.confirm === "1"){
+          try { if (room) room.send("gac_self_elim", { from: sc.playerName }); } catch(_){}
+          scroogeBtn.disabled = true; scroogeBtn.textContent = "Sent ✓";
+        } else {
+          scroogeBox.dataset.confirm = "1";
+          scroogeBtn.textContent = sc.confirmText;
+        }
+      };
+      scroogeBox.append(scroogeBtn);
+      const infoRow = el("div", { style:"opacity:.85;margin-top:4px" });
+      infoRow.append(el("span", { textContent: sc.playerName + " — " }));
+      infoRow.append(el("i", { textContent: sc.subtitleText }));
+      const infoBtn = el("button", { textContent:"❓", title:"What's the rule?", style:"margin-left:6px" });
+      infoBtn.onclick = () => { alert(sc.ruleText); };
+      infoRow.append(infoBtn);
+      scroogeBox.append(infoRow);
+      wrap.append(scroogeBox);
+    }
+
     if (!gameOver){
       // Mobile voting: hand the vote to every player's phone. The host runs it.
       if (c && c.mobileVoting){
@@ -1296,6 +1351,11 @@ export function startPlayerClient(code) {
     // Host handed Sam the night-settings task (pace/input/choices). Sam picks and
     // taps Begin, replying back so the host applies them and starts.
     if (p && p.samSettings){ showSamSettings(p); return; }
+    // Private Bad Santa check, sent at the start of a night following a day
+    // Bad Santa was alive for. Silent — never narrated, never shown to any
+    // other player. Reply routes back through the same gac_choice channel
+    // every other decision uses.
+    if (p && p.badSantaCheck){ showBadSantaCheck(p); return; }
     // Host cancelled the card-assignment hand-off — leave the setup screen.
     if (p && p.samSetupCancel){
       samSetupState = null;
