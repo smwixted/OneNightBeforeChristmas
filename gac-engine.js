@@ -14,27 +14,50 @@ const CARD_BY_ID = Object.fromEntries(GAC_ROSTER.map(r => [r.id, r]));
 // Yukon starts with a shield; everyone else starts with none.
 function startingShield(roleId){ return roleId === "Yukon" ? 1 : 0; }
 
+// ---- Single source of truth for what a CARD grants its holder ----
+// Every place a player's identity is set OR changed to a given card reads
+// from these three — the initial deal (makePlayer), a card changing hands
+// mid-game via a Wet steal (gacReassignRole), and a player confirming which
+// physical card they actually hold (index.html's gacApplyCardPicks, which
+// imports these). A role's team/powers/shield rule only ever needs to be
+// written once here; nothing else may hardcode this mapping.
+export function gacCardTeam(roleId){
+  const card = CARD_BY_ID[roleId] || {};
+  return card.team === "grinch" ? "grinch" : "christmas";
+}
+export function gacCardPowers(roleId){
+  return {
+    krampusConvert:  roleId === "Krampus",
+    mrsClausSave:    roleId === "Mrs",
+    mrsClausPoison:  roleId === "Mrs",
+    buddySwap:       roleId === "Buddy",
+    wetBanditsSteal: roleId === "Wet",
+  };
+}
+// The SHIELD belongs to the card, not the player — Yukon Cornelius survives
+// his first attack, so whoever holds the Yukon card holds that shield, and
+// whoever gives it up loses it. The spent state travels too: if the card
+// has ALREADY absorbed an attack this game, a new holder doesn't get a
+// fresh one — game.spentShields tracks that per card, not per player.
+export function gacCardShield(game, roleId){
+  if (!game.spentShields) game.spentShields = {};
+  return game.spentShields[roleId] ? 0 : startingShield(roleId);
+}
+
 // Create a fresh Player from a name + the card they hold.
 export function makePlayer(id, name, roleId){
-  const card = CARD_BY_ID[roleId] || {};
   return {
     id, name,
     roleId,
     startRoleId: roleId,        // the card they were originally dealt (never changes)
-    startTeam: card.team === "grinch" ? "grinch" : "christmas",
-    team: card.team === "grinch" ? "grinch" : "christmas",   // moderator never a player
+    startTeam: gacCardTeam(roleId),
+    team: gacCardTeam(roleId),   // moderator never a player
     alive: true,
     loverOf: null,
     protectedThisNight: false,
     lastProtectedNight: 0,
-    shieldCount: startingShield(roleId),
-    powers: {
-      krampusConvert: roleId === "Krampus",
-      mrsClausSave:   roleId === "Mrs",
-      mrsClausPoison: roleId === "Mrs",
-      buddySwap:      roleId === "Buddy",
-      wetBanditsSteal: roleId === "Wet",
-    },
+    shieldCount: startingShield(roleId),   // no game object yet at creation — a fresh deal can't have a spent shield
+    powers: gacCardPowers(roleId),
     knownInfo: [],
     pendingDeath: false,
     deathSource: null,
@@ -327,27 +350,10 @@ function gacFindHolder(game, roleId){
 // shield, and powers to match — while preserving startRoleId. Used by Wet
 // Bandits (steal) and Krampus (convert).
 function gacReassignRole(game, player, newRoleId){
-  const CARD = (typeof CARD_BY_ID !== "undefined") ? CARD_BY_ID : null;
-  const card = CARD ? (CARD[newRoleId] || {}) : {};
   player.roleId = newRoleId;
-  player.team = card.team === "grinch" ? "grinch" : "christmas";
-  // Powers reflect the NEW card. (Once-per-game powers reset to the new role's.)
-  player.powers = {
-    krampusConvert:  newRoleId === "Krampus",
-    mrsClausSave:    newRoleId === "Mrs",
-    mrsClausPoison:  newRoleId === "Mrs",
-    buddySwap:       newRoleId === "Buddy",
-    wetBanditsSteal: newRoleId === "Wet",
-  };
-  // The SHIELD belongs to the card, not the player. Yukon Cornelius survives his
-  // first attack — so whoever holds the Yukon card holds that shield, and whoever
-  // gives it up loses it. (Without this, a Wet Bandit who stole the Yukon card
-  // kept shieldCount:0 and died to the first attack he should have survived.)
-  //
-  // The spent state travels too: if the Yukon card has ALREADY absorbed an attack,
-  // stealing it doesn't mint a fresh shield. game.spentShields tracks that per card.
-  if (!game.spentShields) game.spentShields = {};
-  player.shieldCount = game.spentShields[newRoleId] ? 0 : startingShield(newRoleId);
+  player.team = gacCardTeam(newRoleId);
+  player.powers = gacCardPowers(newRoleId);   // once-per-game powers reset to the new role's
+  player.shieldCount = gacCardShield(game, newRoleId);
 }
 
 // Apply the Wet Bandits' steal: the Wet player takes the target's card, the

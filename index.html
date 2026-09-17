@@ -1327,7 +1327,7 @@
 import { ROSTER, TIMELINE, MUSIC, VOTE_TIMERS, ROLE_TIMERS } from "./roles.js?v=46";
 import { GAC_ROSTER } from "./gac-roles.js?v=12";
 import { GAC_NIGHT1, GAC_NIGHTN } from "./gac-script.js?v=17";
-import { makeGame, validateClaims, eliminate, checkWin, living, grinchSafetyWarning, resolveNight, applyWetSteal } from "./gac-engine.js?v=26";
+import { makeGame, validateClaims, eliminate, checkWin, living, grinchSafetyWarning, resolveNight, applyWetSteal, gacCardTeam, gacCardPowers, gacCardShield } from "./gac-engine.js?v=27";
 import { runNight } from "./night-engine.js?v=46";
 import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpConfigured,
          startSession, endSession, getHostSession, broadcastRoles, openJoinPrompt, teardownHostVoteUI, renameHost, broadcastGameSwitch,
@@ -2413,11 +2413,16 @@ function gacStartNight(night){
   if (night > 1 && gacBadSantaCheckedNight !== night && gacGame){
     const badSanta = gacGame.players.find(p => p.roleId === "BadSanta" && p.alive);
     if (badSanta){
-      gacBadSantaCheckedNight = night;
+      // NOTE: gacBadSantaCheckedNight is deliberately NOT set here — only
+      // once gacResolveBadSantaCheck actually runs (see below). If the
+      // check never resolves (dropped reply, closed dialog), a retry must
+      // re-enter this gate and ask again, not silently skip straight to
+      // building the night with Bad Santa never eliminated.
       gacBadSantaResumeNight = night;
       const samName = gacSamOnPhone();
       if (samName){
         gacAwaitingBadSantaCheck = true;
+        try { gacRegisterPhoneHandler(); } catch(_){}   // ensure Sam's reply has a listener to land on
         try { gacSendInfo(samName, { badSantaCheck:true, playerName: badSanta.name }); } catch(_){}
       } else {
         gacShowBadSantaCheck(badSanta.name);
@@ -2775,18 +2780,28 @@ function gacShowBadSantaCheck(playerName){
   gacResolveBadSantaCheck(saidGrinch);
 }
 // Single resolution point for BOTH the host's own answer and Sam's phone
-// reply. MUST call gacStartNight on every path, regardless of the answer —
-// this is the only thing standing between "No" and "Yes" ever hanging the
-// night. Eliminating on "No" happens first so the broadcasted day summary
-// (inside gacApplyBrokenRule, if it were mid-day) or the fresh night build
-// (here) reflects it either way.
+// reply. gacStartNight fires in `finally`, so it's genuinely unconditional —
+// even an unrelated throw above it can't skip the resume and leave the
+// night hung. Marks the night "checked" HERE (not when the prompt was
+// sent) so a check that never got an answer correctly re-fires on retry
+// instead of silently letting the night proceed with Bad Santa still alive.
 function gacResolveBadSantaCheck(saidGrinch){
   const resumeNight = gacBadSantaResumeNight;
-  if (!saidGrinch){
-    const badSanta = gacGame ? gacGame.players.find(p => p.roleId === "BadSanta" && p.alive) : null;
-    if (badSanta) gacApplyBrokenRule(badSanta.name);
+  gacBadSantaCheckedNight = resumeNight;
+  try {
+    if (!saidGrinch){
+      const badSanta = gacGame ? gacGame.players.find(p => p.roleId === "BadSanta" && p.alive) : null;
+      if (badSanta){
+        // Applied BEFORE gacStartNight rebuilds the night, so the elimination
+        // is fully in effect (and attributed to the right night's log) before
+        // any beat, wheel, or decision for that night is built.
+        gacNight = resumeNight;
+        gacApplyBrokenRule(badSanta.name);
+      }
+    }
+  } finally {
+    gacStartNight(resumeNight);
   }
-  gacStartNight(resumeNight);
 }
 function gacApplyBrokenRule(name){
   if (!gacGame) return false;
@@ -5023,13 +5038,21 @@ function gacRenderCardWait(){
 }
 function gacApplyCardPicks(){
   // Assign each player's confirmed card to their game role (override defaults).
+  // makeGame() ran BEFORE anyone confirmed their real card, so any player not
+  // pre-assigned got the "Elf1" placeholder — including its (all-false)
+  // .powers. team/powers/shield all come from gac-engine.js's shared
+  // gacCardTeam/gacCardPowers/gacCardShield — the same single source of
+  // truth makePlayer and gacReassignRole (Wet steal/Krampus) already use —
+  // so this flow can't drift from theirs or leave a role's powers stuck at
+  // its placeholder's.
   Object.entries(gacCardPicks).forEach(([name, cardId]) => {
     const pl = gacGame.players.find(p => p.name === name);
     if (pl && cardId){
       pl.roleId = cardId; pl.startRoleId = cardId;
-      const c = (typeof CARD_BY_ID !== "undefined" && CARD_BY_ID[cardId]) ? CARD_BY_ID[cardId] : (GAC_ROSTER.find(r=>r.id===cardId)||{});
-      pl.team = c.team === "grinch" ? "grinch" : "christmas";
+      pl.team = gacCardTeam(cardId);
       pl.startTeam = pl.team;
+      pl.powers = gacCardPowers(cardId);
+      pl.shieldCount = gacCardShield(gacGame, cardId);
     }
   });
 }
