@@ -2465,6 +2465,11 @@ function gacStartNight(night){
   // screen (matching the narrator's first beat) before the "night in progress"
   // waiting screen takes over.
   try { if (gacSessionActive()) gacBroadcastSleep(gacNight); } catch(_){}
+  // Hiding the tracker HERE (not in the callers) means a night-start gate
+  // that returns early above (Bad Santa check) leaves the tracker up as a
+  // coherent holding screen during the pause, instead of exposing whatever
+  // sits underneath once both tracker and narrator are hidden.
+  if (gacTracker) gacTracker.style.display = "none";
   gacNarrator.style.display = "flex";
   gacStartMusic();                            // background music (if a track is on)
   gacWetCenterPickInserted = false;   // fresh night → the follow-up beat can insert again
@@ -2932,7 +2937,10 @@ function gacRegisterAckHandler(){
         // If Sam never shared this day's results, reveal them now — a new night is
         // starting and eliminated players must know they're out.
         gacRevealPendingResults();
-        if (gacTracker) gacTracker.style.display = "none";
+        // Tracker hide moved into gacStartNight itself (right before the
+        // narrator screen is shown) — hiding it here left the host with
+        // nothing visible except the setup screen underneath during a
+        // pending night-start gate (e.g. the Bad Santa check).
         gacStartNight(gacNight + 1);
       }
     });
@@ -5733,8 +5741,7 @@ function gacApplyUntrackedDayLayout(){
     btn.classList.add("flying");
     const go = () => {
       btn.classList.remove("flying");
-      gacTracker.style.display = "none";
-      gacStartNight(gacNight + 1);
+      gacStartNight(gacNight + 1);   // hides the tracker itself, right before showing the narrator
     };
     // Advance when the flight finishes (with a timeout fallback).
     const sleigh = document.getElementById("gacSleighImg");
@@ -6554,11 +6561,9 @@ function gacUpdateTrackControls(){
   if (shareBtn) shareBtn.style.display = (over && gacSessionActive() && !_samRunning) ? "inline-block" : "none";
 }
 document.getElementById("gacRestartNight").onclick = () => {
-  gacTracker.style.display = "none";
-  gacStartNight(gacNight);   // restart the CURRENT night from the top
+  gacStartNight(gacNight);   // restart the CURRENT night from the top (hides the tracker itself)
 };
 document.getElementById("gacNextNight").onclick = () => {
-  gacTracker.style.display = "none";
   gacStartNight(gacNight + 1);
 };
 
