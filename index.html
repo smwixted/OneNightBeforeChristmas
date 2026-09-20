@@ -712,6 +712,9 @@
   @keyframes gacWinPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
   #gacSetupWarn, #gacTrackResult{max-width:680px;margin:10px auto;font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;
     font-size:15px;line-height:1.4}
+  /* #gacTrackResult only (not #gacSetupWarn, which stays left-aligned) —
+     matches .mpWrap's text-align:center on the player/Sam screens. */
+  #gacTrackResult{text-align:center}
   #gacSetupWarn .warn, #gacTrackResult .warn{background:rgba(140,70,0,.55);border:1px solid #ffcc88;
     color:#ffe9c7;border-radius:10px;padding:12px 14px;margin-bottom:8px}
   #gacSetupWarn .warn.err{background:rgba(150,20,20,.6);border:1px solid #ff9a9a;color:#ffe1e1}
@@ -1334,7 +1337,7 @@ import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpCo
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
          gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles }
-  from "./multiplayer-ui.js?v=207";
+  from "./multiplayer-ui.js?v=209";
 import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
 
 // ---------- PLAYER JOIN MODE ----------
@@ -1523,6 +1526,7 @@ let gacPendingNight1 = false;         // Night 1 is waiting on Sam Settings to f
 let gacBadSantaCheckedNight = 0;      // last night number this check already fired for (0 = never)
 let gacBadSantaResumeNight = 0;       // which night to resume into once answered
 let gacAwaitingBadSantaCheck = false; // guards against a stray/duplicate reply re-triggering the resume
+let gacPendingNightAnnouncement = null; // one-off narrated line inserted before "EVERYONE, go to sleep" this night, or null
 function applyDefaults(target){
   for (const k in DEFAULT_SETTINGS){
     if (target[k] === undefined) target[k] = DEFAULT_SETTINGS[k];
@@ -2456,6 +2460,13 @@ function gacStartNight(night){
   gacFrostPending = false;
   gacAwaitingFrost = false; gacFrostResolver = null; gacFrostHostWaitEl = null;
   gacSteps = gacBuildSteps(night);
+  // A pending public announcement (e.g. Bad Santa's night-start elimination)
+  // goes first — spoken/shown before "EVERYONE, go to sleep", same as any
+  // other beat, via the normal narration pipeline. One-shot: cleared here.
+  if (gacPendingNightAnnouncement){
+    gacSteps.unshift({ type:"line", text: gacPendingNightAnnouncement, img: null, audio: gacAudioFor(gacPendingNightAnnouncement) });
+    gacPendingNightAnnouncement = null;
+  }
   gacIdx = 0;
   try { AudioGain.ensureCtx(); AudioGain.connectAll(); } catch(_){}  // wake audio routing (Sam may drive remotely)
   gacRegisterPhoneHandler();                  // ensure phone replies are handled
@@ -2799,16 +2810,24 @@ function gacResolveBadSantaCheck(saidGrinch){
       if (badSanta){
         // Applied BEFORE gacStartNight rebuilds the night, so the elimination
         // is fully in effect (and attributed to the right night's log) before
-        // any beat, wheel, or decision for that night is built.
+        // any beat, wheel, or decision for that night is built. nightStart:true
+        // skips the day-summary broadcast (it's still night — that would yank
+        // every OTHER player into a day-results view mid-night) in favor of a
+        // targeted "you're out" notice to Bad Santa alone (see gacApplyBrokenRule).
         gacNight = resumeNight;
-        gacApplyBrokenRule(badSanta.name);
+        gacApplyBrokenRule(badSanta.name, { nightStart: true });
+        // PLACEHOLDER wording — Scott picks the final text; also needs a
+        // recorded+mapped audio clip if it should be SPOKEN under "Game
+        // Narrates" (gacAudioFor has no match for custom text yet, so today
+        // this shows as text only, silently, no error).
+        gacPendingNightAnnouncement = `Uh oh — looks like Bad Santa forgot to say "Grinch" today. ${badSanta.name} has been eliminated!`;
       }
     }
   } finally {
     gacStartNight(resumeNight);
   }
 }
-function gacApplyBrokenRule(name){
+function gacApplyBrokenRule(name, opts){
   if (!gacGame) return false;
   const pl = gacGame.players.find(p => p.name === name && p.alive);
   if (!pl) return false;
@@ -2820,7 +2839,23 @@ function gacApplyBrokenRule(name){
     try { gacUpdateScroogeButton(); } catch(_){}   // hides promptly if Scrooge was the one eliminated
   }
   try { gacStreamDayToSam(); } catch(_){}   // keep a non-host Sam's copy in lockstep too
-  gacBroadcastDaySummary(null, gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : null);
+  if (opts && opts.nightStart){
+    // It's still night — a full day-results broadcast would wrongly yank
+    // every OTHER player (and a remote Sam) into a "Day N — Results" view
+    // mid-night. Notify the eliminated player alone, without touching
+    // anyone else's screen; the table gets the narrated announcement
+    // instead (inserted by the caller, see gacResolveBadSantaCheck).
+    try { gacSendInfo(name, { eliminatedNow: true }); } catch(_){}
+  } else {
+    // Genuinely daytime here (self-report or the Scrooge button) — the full
+    // broadcast is correct, now also carrying a public callout since this
+    // kind of elimination is never secret (opposite of the dumb-log rule).
+    // PLACEHOLDER wording — Scott picks the final text.
+    gacBroadcastDaySummary(null, Object.assign(
+      gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : {},
+      { ruleBreakAnnouncement: `${pl.name} broke their rule and was eliminated!` }
+    ));
+  }
   return true;
 }
 let gacAckHandlerSet = false;
@@ -6042,6 +6077,10 @@ function gacBroadcastDaySummary(report, opts){
   const frostPending = opts && opts.frostPending ? opts.frostPending : null;
   const frostTookDown = opts && opts.frostTookDown ? opts.frostTookDown : null;
   const heartbreak = opts && opts.heartbreak ? opts.heartbreak : null;
+  // A public rule-break (Scrooge/Bad Santa) is never secret — opposite of
+  // the dumb-log rule — so it's fine to say why, distinctly from the
+  // generic "was eliminated" wording every other cause shares.
+  const ruleBreakAnnouncement = opts && opts.ruleBreakAnnouncement ? opts.ruleBreakAnnouncement : null;
   // Coin-flip state for the phones:
   //  - coinPending: a draw is waiting on the host's flip. Show the two-sided
   //    preview + "host is flipping…" — but NO winner is sent yet (can't leak).
@@ -6052,6 +6091,7 @@ function gacBroadcastDaySummary(report, opts){
   const payload = { night: gacNight, deaths, swaps, living, out,
                     win: (win === "coinpending" ? null : (win || null)),
                     afterVote, votedOut, tieEliminated, frostPending, frostTookDown, heartbreak,
+                    ruleBreakAnnouncement,
                     coinPending,
                     coinFlip: (coinRevealed ? gacGame.coinFlip.winner : null),
                     coinRevealed };

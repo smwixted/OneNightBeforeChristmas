@@ -869,15 +869,22 @@ export function startPlayerClient(code) {
     wrap.append(el("div", { className: "mpH", textContent: `Hi ${myName}!` }));
     wrap.append(el("div", { className: "mpSub", textContent: msg || "Waiting for the host…" }));
   }
+  // Single source of truth for "leave whatever Sam screen/state I was on" —
+  // used whenever this client stops being (or might no longer be) the Sam
+  // narrator's active view: a fresh GAC night beat, and (below) a cross-game
+  // switch. Never partially duplicate this list again — see game_switch.
+  function gacResetSamState(){
+    samRunningBeat = false;
+    samSetupState = null;
+    samDayControls = null; samDayResults = null;
+    if (typeof mpHideSamNextNight === "function") mpHideSamNextNight();
+  }
   // Shared "Everyone, go to sleep" screen shown to all phones at night start,
   // mirroring the narrator's opening beat, before the "night in progress" wait.
   function gacSleepScreen(p){
     onResultScreen = false;
     onWaitingScreen = false;
-    samRunningBeat = false;   // not on a beat yet
-    samSetupState = null;   // leaving any Sam card-assignment screen
-    samDayControls = null; samDayResults = null;   // leaving any Sam day screen
-    if (typeof mpHideSamNextNight === "function") mpHideSamNextNight();
+    gacResetSamState();
     if (typeof mpHideGameLogBtn === "function") mpHideGameLogBtn();
     // Close any game-log overlay left open from a previous game's shared results,
     // and reset the shared-log latch so it doesn't re-trap the player.
@@ -1300,10 +1307,8 @@ export function startPlayerClient(code) {
   }
   function showSamNarration(p){
     hideNudge();
-    samRunningBeat = true;   // Sam is on a beat — ignore table 'wait' broadcasts
-    samSetupState = null;   // leaving any setup screen
-    samDayControls = null; samDayResults = null;
-    if (typeof mpHideSamNextNight === "function") mpHideSamNextNight();
+    gacResetSamState();
+    samRunningBeat = true;   // ...then immediately re-enter: Sam IS on a beat — ignore table 'wait' broadcasts
     wrap.innerHTML = "";
     // Header (stays at top) — the one bit that differs from the host by design.
     wrap.append(el("div", { className: "mpH", style:"margin-bottom:0", textContent: `🌙 Night ${p.night||""} — you are Sam` }));
@@ -1356,6 +1361,12 @@ export function startPlayerClient(code) {
     // other player. Reply routes back through the same gac_choice channel
     // every other decision uses.
     if (p && p.badSantaCheck){ showBadSantaCheck(p); return; }
+    // A night-start rule-break elimination (Bad Santa) applies while it's
+    // still night, so it skips the normal day-summary broadcast (that would
+    // wrongly yank the whole table into a day-results view mid-night) — this
+    // is the targeted, screen-preserving alternative: just raise the same
+    // standing "eliminated" banner every other elimination already uses.
+    if (p && p.eliminatedNow){ mpSetEliminated(true); return; }
     // Host cancelled the card-assignment hand-off — leave the setup screen.
     if (p && p.samSetupCancel){
       samSetupState = null;
@@ -1629,6 +1640,12 @@ export function startPlayerClient(code) {
     }
     if (s.swaps && s.swaps.length){
       s.swaps.forEach(sw => wrap.append(el("div", { className:"mpSub", innerHTML:`🔄 <b>${sw.a}</b> and <b>${sw.b}</b> were swapped — switch seats!` })));
+    }
+    // A public rule-break (Scrooge/Bad Santa) — GAC-only field, never set by
+    // ONBC's own broadcasts, so this is purely additive there: undefined for
+    // any ONBC payload, this block simply never renders.
+    if (s.ruleBreakAnnouncement){
+      wrap.append(el("div", { className: "mpGacResult", innerHTML: s.ruleBreakAnnouncement }));
     }
     if (s.afterVote){
       if (s.votedOut){
@@ -2288,7 +2305,14 @@ export function startPlayerClient(code) {
         },
         onMessage: (type, payload) => {
           if (type === "game_switch") {
-            // Host moved between ONBC and GAC — follow them.
+            // Host moved between ONBC and GAC — follow them. Clear any Sam
+            // state a finished GAC game left behind FIRST: without this, a
+            // leftover samDayControls kept _amSamNarrator true forever, so
+            // this client silently dropped vote_open/vote_results (shared
+            // with ONBC) while unrelated messages (like "roles") kept
+            // updating it — a frozen screen with a live cheat sheet.
+            gacResetSamState();
+            waiting();
             if (window.__showGame) window.__showGame(payload.game, { fromHost: true });
           }
           if (type === "roles") {

@@ -40,21 +40,87 @@ don't just delete them (keeps history of what was fixed and why).
    the tracker now stays up as the holding screen through any pause, for
    both narrator configs, with zero change to the gate's resume/`finally`
    logic.
-2. Day-results screen: host + other-player screens should match the
-   Sam-screen look (the one Scott likes); the host's day screen isn't
-   centered.
-3. End-game after Sam shares results: host screen looks worse than
+2. **[done 2026-09-20]** Finishing a GAC game and starting an ONBC
+   game leaves the player who was Sam the Snowman stuck on the previous
+   game's screen (their cheat sheet still updates — only the main screen is
+   frozen). Root cause confirmed: the `game_switch` message handler
+   (`multiplayer-ui.js:2290-2293`) never resets Sam-specific client state
+   (`samDayControls`/`samDayResults`/`samSetupState`/`samRunningBeat`) — the
+   only places that ever clear it (`gacSleepScreen`, `showSamNarration`) are
+   GAC-internal transitions that never fire on a cross-game switch. With
+   `samDayControls` still truthy, every vote-related message handler
+   (`vote_open`/`vote_countdown`/`vote_results`/etc. — shared with ONBC) is
+   gated behind `if (!!samDayControls) return;` and silently drops, while
+   the ungated `roles` handler keeps updating the cheat sheet normally —
+   exactly matching the reported symptom. Fix: extract the reset block
+   (currently duplicated identically in `gacSleepScreen`/`showSamNarration`)
+   into one shared `gacResetSamState()`, call it from those two sites plus
+   the `game_switch` handler, and show a neutral `waiting()` screen
+   immediately after so the affected client isn't left blank until the next
+   incoming message. ONBC-safe by construction — these variables are never
+   set by any ONBC code path, so clearing an already-null value on switch
+   changes nothing for an ONBC-only session.
+3. **[done 2026-09-20, wording pending]** Bad Santa / Scrooge rule-break
+   eliminations are no longer silent. `gacApplyBrokenRule(name, opts)` now
+   takes `{nightStart:true}` (used only by the Bad Santa night-start gate):
+   skips the day-summary broadcast (which was wrongly yanking every other
+   player's phone, and a remote Sam's screen, into a "Day N — Results" view
+   mid-night — a real bug found while investigating this, now fixed
+   regardless of the announcement feature) and instead sends a targeted
+   `{eliminatedNow:true}` message to Bad Santa alone, which raises his
+   standing "eliminated" banner without touching anyone else's screen. The
+   table announcement is a normal narrated line-beat, unshifted onto the
+   front of that night's `gacSteps` (before "EVERYONE, go to sleep") via a
+   new `gacPendingNightAnnouncement` — reaches the host and a non-host Sam
+   for free through the existing narration/mirroring pipeline. Scrooge's
+   elimination (genuinely daytime, no mid-night side effect) keeps the
+   normal day-summary broadcast, now additionally carrying
+   `payload.ruleBreakAnnouncement`, rendered as a distinct line in
+   `appendResultLines` (confirmed purely additive for ONBC — that field is
+   only ever set by `gacBroadcastDaySummary`, a GAC-only function; ONBC's
+   own vote-results payload comes from a completely different, untouched
+   function, `multiplayer.js`'s `tally()`).
+   - **Still pending:** Scott is choosing the final wording for both
+     announcement strings (currently placeholder text in the code, clearly
+     marked). Both are one-line string edits once decided.
+   - **Follow-up, don't forget:** the Bad Santa announcement line has no
+     pre-recorded audio clip (`gacAudioFor` only matches fixed, pre-recorded
+     strings) — under "Game Narrates" it shows as text but is NOT spoken
+     (confirmed silent no-op, not an error). Record + map an audio clip for
+     the Bad Santa elimination announcement if it should be spoken aloud —
+     do this alongside the wording decision above, once wording is final.
+4. Day-results screen: host + other-player screens should match the
+   Sam-screen look (the one Scott likes) — the bigger renderer-unification
+   (below) is still queued. **[centering done 2026-09-20]** the host's day
+   screen not being centered is fixed: added a targeted `#gacTrackResult{text-align:center}`
+   rule (kept separate from the pre-existing shared `#gacSetupWarn,
+   #gacTrackResult{...}` rule, so the setup-warning screen's own alignment
+   is untouched). Centering cause was: `.mpWrap` (the player/Sam
+   container, `multiplayer-ui.js:68`) is
+   `max-width:520px;margin:0 auto;text-align:center`; the host's
+   `#gacTrackResult` (`index.html:713`) was `max-width:680px;margin:10px
+   auto` — centered as a block, but missing `text-align:center` entirely.
+   The full "match the Sam-screen look" (not just centering) still needs
+   the renderer-unification in item 5 below.
+5. End-game after Sam shares results: host screen looks worse than
    players' — make "You Win"/"You Lose", the "Team Wins!" area, and the
    Results header match the player screens; center the Results header.
    This is the host-vs-player renderer drift again (see CLAUDE.md/session
    history — `gacRenderTrackResult`/`gacShowWinIfAny` vs `appendResultLines`)
    — prefer routing the host through the player renderer over patching
-   another hand-built copy.
-4. Scrooge confirmation: change the button-relabel "tap to confirm" flow
+   another hand-built copy. Same underlying fix as item 4 above (both are
+   the host's hand-built HTML vs. the shared `appendResultLines`) — worth
+   doing together. Needs: (a) a working view still for a pure-narrator host
+   (not a player) — `appendResultLines` assumes a player-shaped payload
+   (`s.win`/`me.won`), so this needs a small adapter, not a blind
+   pass-through; (b) confirm ONBC untouched (shares `appendResultLines`,
+   but the host-side reshaping is GAC-only code, doesn't touch ONBC's own
+   call path).
+6. Scrooge confirmation: change the button-relabel "tap to confirm" flow
    into a Yes/No popup. Apply to BOTH the host tracker's Scrooge button and
    Sam's-phone Scrooge button, reading from the same shared `GAC_SCROOGE_SPEC`
    so the two can't drift from each other.
-5. **[HELD — its own project, not scoped yet]** Reword "killing" to
+7. **[HELD — its own project, not scoped yet]** Reword "killing" to
    "robbing their house" game-wide: Belsnickel, Grinches, Krampus, Mrs.
    Claus's save, Jack Frost, manual host adjustments, spoken narration, the
    simple/smart logs, and the narration audio clips. Needs the full replacement
