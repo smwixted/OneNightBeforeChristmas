@@ -1336,8 +1336,8 @@ import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpCo
          startSession, endSession, getHostSession, broadcastRoles, openJoinPrompt, teardownHostVoteUI, renameHost, broadcastGameSwitch,
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
-         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles }
-  from "./multiplayer-ui.js?v=209";
+         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles, gacBroadcastRuleBreakAnnouncement }
+  from "./multiplayer-ui.js?v=210";
 import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
 
 // ---------- PLAYER JOIN MODE ----------
@@ -2839,22 +2839,23 @@ function gacApplyBrokenRule(name, opts){
     try { gacUpdateScroogeButton(); } catch(_){}   // hides promptly if Scrooge was the one eliminated
   }
   try { gacStreamDayToSam(); } catch(_){}   // keep a non-host Sam's copy in lockstep too
+  // Tell the eliminated player directly and immediately, either way — NEITHER
+  // branch below routes through gacBroadcastDaySummary (the only other thing
+  // that raises this banner), so this is the one place it happens now.
+  try { gacSendInfo(name, { eliminatedNow: true }); } catch(_){}
   if (opts && opts.nightStart){
-    // It's still night — a full day-results broadcast would wrongly yank
-    // every OTHER player (and a remote Sam) into a "Day N — Results" view
-    // mid-night. Notify the eliminated player alone, without touching
-    // anyone else's screen; the table gets the narrated announcement
-    // instead (inserted by the caller, see gacResolveBadSantaCheck).
-    try { gacSendInfo(name, { eliminatedNow: true }); } catch(_){}
+    // It's still night — the table announcement is the narrated line-beat
+    // the caller inserts (gacResolveBadSantaCheck's gacPendingNightAnnouncement).
+    // Nothing more to broadcast here.
   } else {
-    // Genuinely daytime here (self-report or the Scrooge button) — the full
-    // broadcast is correct, now also carrying a public callout since this
-    // kind of elimination is never secret (opposite of the dumb-log rule).
-    // PLACEHOLDER wording — Scott picks the final text.
-    gacBroadcastDaySummary(null, Object.assign(
-      gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : {},
-      { ruleBreakAnnouncement: `${pl.name} broke their rule and was eliminated!` }
-    ));
+    // Genuinely daytime (self-report or the Scrooge button) — a public
+    // rule-break gets an unconditional toast to everyone, deliberately
+    // decoupled from gacBroadcastDaySummary entirely: that function is
+    // gated by the results-distribution setting (an unrelated concern) and
+    // forces every phone's screen to rebuild into a results view, neither
+    // of which belongs to a mid-day announcement. PLACEHOLDER wording —
+    // Scott picks the final text.
+    try { gacBroadcastRuleBreakAnnouncement(`${pl.name} broke their rule and was eliminated!`); } catch(_){}
   }
   return true;
 }
@@ -6070,17 +6071,46 @@ function gacBroadcastDaySummary(report, opts){
   const votedOut = opts && opts.votedOut ? opts.votedOut : null;
   const living = gacGame.players.filter(p => p.alive && p.roleId !== "Sam").map(p => p.name);
   const out = gacGame.players.filter(p => !p.alive && p.roleId !== "Sam").map(p => p.name);
-  const deaths = report && report.deaths ? report.deaths.map(d => d.name) : [];
-  const swaps = report && report.swaps ? report.swaps.map(s => ({a:s.a, b:s.b})) : [];
+  // Is there a summary for THIS night that's still genuinely unrevealed?
+  // Decided ONCE here and reused below for both the data and the recipient
+  // — a caller with no report of its own (Jack Frost's automatic revenge
+  // check, a host roster tweak, or a vote that somehow outran the reveal)
+  // must never be the reason the table permanently never learns what
+  // happened overnight, in ANY distribution mode including ungated
+  // "everyone" (where nothing is ever "pending" to protect, so this alone
+  // isn't sufficient — see the deaths/swaps fallback below).
+  const stillPendingThisNight = !!(gacPendingShareSummary && gacPendingShareSummary.night === gacNight);
+  let deaths, swaps;
+  if (report){
+    deaths = report.deaths ? report.deaths.map(d => d.name) : [];
+    swaps = report.swaps ? report.swaps.map(s => ({a:s.a, b:s.b})) : [];
+  } else if (stillPendingThisNight){
+    // Preserve the real pending data rather than overwrite it with empty —
+    // this is the ONLY branch a caller with no report of its own can land
+    // in while a vote is genuinely still gated (afterVote calls otherwise
+    // skip this fallback below, on purpose — see the !afterVote check).
+    deaths = gacPendingShareSummary.deaths || [];
+    swaps = gacPendingShareSummary.swaps || [];
+  } else if (!afterVote && gacLastNightReport){
+    // Nothing pending (ungated "everyone" mode already showed it directly,
+    // or it was already properly revealed earlier) — but this ISN'T a vote
+    // result, so it's safe to keep showing the night's real facts instead
+    // of silently blanking them the instant an unrelated broadcast (Jack
+    // Frost) fires. A normal vote-results broadcast deliberately does NOT
+    // fall back here — that would re-show the swap line a second time on
+    // every game that had one, since gacLastNightReport isn't cleared
+    // until the next night starts.
+    deaths = gacLastNightReport.deaths ? gacLastNightReport.deaths.map(d => d.name) : [];
+    swaps = gacLastNightReport.swaps ? gacLastNightReport.swaps.map(s => ({a:s.a, b:s.b})) : [];
+  } else {
+    deaths = [];
+    swaps = [];
+  }
   const win = (typeof checkWin === "function") ? gacResolveWin(checkWin(gacGame, { afterVote })) : null;
   const tieEliminated = opts && opts.tieEliminated ? opts.tieEliminated : null;
   const frostPending = opts && opts.frostPending ? opts.frostPending : null;
   const frostTookDown = opts && opts.frostTookDown ? opts.frostTookDown : null;
   const heartbreak = opts && opts.heartbreak ? opts.heartbreak : null;
-  // A public rule-break (Scrooge/Bad Santa) is never secret — opposite of
-  // the dumb-log rule — so it's fine to say why, distinctly from the
-  // generic "was eliminated" wording every other cause shares.
-  const ruleBreakAnnouncement = opts && opts.ruleBreakAnnouncement ? opts.ruleBreakAnnouncement : null;
   // Coin-flip state for the phones:
   //  - coinPending: a draw is waiting on the host's flip. Show the two-sided
   //    preview + "host is flipping…" — but NO winner is sent yet (can't leak).
@@ -6091,7 +6121,6 @@ function gacBroadcastDaySummary(report, opts){
   const payload = { night: gacNight, deaths, swaps, living, out,
                     win: (win === "coinpending" ? null : (win || null)),
                     afterVote, votedOut, tieEliminated, frostPending, frostTookDown, heartbreak,
-                    ruleBreakAnnouncement,
                     coinPending,
                     coinFlip: (coinRevealed ? gacGame.coinFlip.winner : null),
                     coinRevealed };
@@ -6155,7 +6184,15 @@ function gacBroadcastDaySummary(report, opts){
     try { gacBroadcastSummary({ ...payload, resultsHidden: true, resultsRecipient: samRunning }); } catch(_){}
     return;
   }
-  const recipient = (forceAll || (payload.afterVote && !routeToSamAtEnd)) ? null : gacResultsRecipient();
+  // gacResultsRecipient() re-derives "who SHOULD get this" from current
+  // settings/roster every time it's called — under "random" mode that's a
+  // fresh coin-flip on every call, and under "picked" mode it silently
+  // reassigns if the picked player has since died. Reuse the SAME recipient
+  // already holding this night's pending reveal instead of re-rolling out
+  // from under them mid-wait; only decide fresh when nothing's pending yet.
+  const recipient = (forceAll || (payload.afterVote && !routeToSamAtEnd)) ? null
+    : stillPendingThisNight ? gacPendingShareSummary._recipient
+    : gacResultsRecipient();
   if (recipient){
     // Everyone gets the FULL day summary (card, self-elim, in/out list) — but the
     // overnight RESULTS portion is gated: the recipient reveals them (and can then
@@ -6604,6 +6641,11 @@ document.getElementById("gacRestartNight").onclick = () => {
   gacStartNight(gacNight);   // restart the CURRENT night from the top (hides the tracker itself)
 };
 document.getElementById("gacNextNight").onclick = () => {
+  // Mirrors the Sam-phone "nextNight" handler's own guard — without this,
+  // the host could advance past a night whose results were never revealed,
+  // permanently losing them (nothing else will ever reveal them) and
+  // leaving anyone eliminated that night never told they're out.
+  gacRevealPendingResults();
   gacStartNight(gacNight + 1);
 };
 
@@ -6728,6 +6770,12 @@ function gacRunManualVote(){
   if (typeof dlg.showModal === "function") dlg.showModal(); else dlg.setAttribute("open","");
 }
 document.getElementById("gacStartVote").onclick = () => {
+  // Mirrors the Sam-phone "vote"/"startVote" handlers' own guard — you
+  // can't sensibly vote while the night's deaths are still hidden, and
+  // without this, a vote could conclude before anyone ever reveals them
+  // (see gacBroadcastDaySummary — a vote always makes results public,
+  // which would silently destroy the still-pending real ones otherwise).
+  gacRevealPendingResults();
   // Untracked game: there's nobody to eliminate in-app, but the table still
   // wants a vote TIMER. Run the timer only — the table handles the outcome.
   if (settings.gacNoTracking || !gacGame || !gacGame.players.length){

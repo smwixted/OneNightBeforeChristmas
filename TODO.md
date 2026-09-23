@@ -24,6 +24,27 @@ don't just delete them (keeps history of what was fixed and why).
 - Both confirmed via `node test/gac-sim/run.mjs` (0 rule-invariant
   violations, 33/33 scenarios) — still needs Scott's real-device pass on
   both before anything else stacks on top.
+- **[shipped 2026-09-22]** Eliminating Scrooge mid-day was destroying
+  overnight results still waiting on a gated recipient to reveal, AND — a
+  bigger find made while investigating — Jack Frost's automatic revenge
+  check (fires with no button press, on every night with deaths where Frost
+  died, in EVERY distribution mode including ungated "everyone") was doing
+  the exact same thing: `gacResultsRecipient()` re-derives who should see
+  results on every call (a fresh coin-flip under "random" mode; silently
+  reassigns under "picked" mode if that player has since died), and
+  `gacBroadcastDaySummary` overwrote `gacPendingShareSummary`'s real
+  deaths/swaps with empty ones whenever a caller passed no report. Root-cause
+  fixed inside `gacBroadcastDaySummary` itself (one `stillPendingThisNight`
+  check, reused for both the deaths/swaps fallback and recipient stability)
+  so no current or future caller can repeat this. Separately, found and
+  closed the actual door that let a vote outrun a reveal in the first
+  place: the host's own `#gacStartVote` and `#gacNextNight` buttons had no
+  `gacRevealPendingResults()` guard at all — only their Sam-phone
+  equivalents did. Scrooge's public rule-break announcement also moved off
+  `gacBroadcastDaySummary` entirely onto its own unconditional broadcast
+  (`gac_rule_break` → a transient toast banner, doesn't rebuild any
+  player's screen) — that function's distribution-gating and full-screen
+  rebuild were never appropriate for a mid-day announcement to begin with.
 
 ## Open items
 
@@ -60,26 +81,26 @@ don't just delete them (keeps history of what was fixed and why).
    incoming message. ONBC-safe by construction — these variables are never
    set by any ONBC code path, so clearing an already-null value on switch
    changes nothing for an ONBC-only session.
-3. **[done 2026-09-20, wording pending]** Bad Santa / Scrooge rule-break
+3. **[done 2026-09-22, wording pending]** Bad Santa / Scrooge rule-break
    eliminations are no longer silent. `gacApplyBrokenRule(name, opts)` now
-   takes `{nightStart:true}` (used only by the Bad Santa night-start gate):
-   skips the day-summary broadcast (which was wrongly yanking every other
-   player's phone, and a remote Sam's screen, into a "Day N — Results" view
-   mid-night — a real bug found while investigating this, now fixed
-   regardless of the announcement feature) and instead sends a targeted
-   `{eliminatedNow:true}` message to Bad Santa alone, which raises his
-   standing "eliminated" banner without touching anyone else's screen. The
-   table announcement is a normal narrated line-beat, unshifted onto the
-   front of that night's `gacSteps` (before "EVERYONE, go to sleep") via a
-   new `gacPendingNightAnnouncement` — reaches the host and a non-host Sam
-   for free through the existing narration/mirroring pipeline. Scrooge's
-   elimination (genuinely daytime, no mid-night side effect) keeps the
-   normal day-summary broadcast, now additionally carrying
-   `payload.ruleBreakAnnouncement`, rendered as a distinct line in
-   `appendResultLines` (confirmed purely additive for ONBC — that field is
-   only ever set by `gacBroadcastDaySummary`, a GAC-only function; ONBC's
-   own vote-results payload comes from a completely different, untouched
-   function, `multiplayer.js`'s `tally()`).
+   ALWAYS sends a targeted `{eliminatedNow:true}` message to the eliminated
+   player, raising their standing "eliminated" banner without touching
+   anyone else's screen. For the two PUBLIC announcements: Bad Santa's
+   (fires at night start, `{nightStart:true}`) is a narrated line-beat
+   unshifted onto the front of that night's `gacSteps` (before "EVERYONE,
+   go to sleep") via `gacPendingNightAnnouncement` — reaches the host and a
+   non-host Sam for free through the existing narration/mirroring pipeline.
+   Scrooge's (fires during the actual day) went through two designs — first
+   `payload.ruleBreakAnnouncement` riding the day-summary broadcast, revised
+   after a playtest showed that broadcast's distribution-gating and
+   full-screen rebuild are wrong for a mid-day event (see the "Eliminating
+   Scrooge" entry above) — now its own unconditional broadcast,
+   `gacBroadcastRuleBreakAnnouncement()` (`multiplayer.js`) → `gac_rule_break`
+   → a transient top-pinned toast (`mpShowRuleBreakBanner`,
+   `multiplayer-ui.js`) that never rebuilds `wrap`, so it can't interrupt a
+   vote or discussion. Export chain verified end to end (export in
+   `multiplayer.js`, import+re-export in `multiplayer-ui.js`, import+usage
+   in `index.html`) — ONBC never sends this message type.
    - **Still pending:** Scott is choosing the final wording for both
      announcement strings (currently placeholder text in the code, clearly
      marked). Both are one-line string edits once decided.
@@ -120,7 +141,15 @@ don't just delete them (keeps history of what was fixed and why).
    into a Yes/No popup. Apply to BOTH the host tracker's Scrooge button and
    Sam's-phone Scrooge button, reading from the same shared `GAC_SCROOGE_SPEC`
    so the two can't drift from each other.
-7. **[HELD — its own project, not scoped yet]** Reword "killing" to
+7. **[bug, found 2026-09-22, not fixed]** The host's own `#gacStartVote`
+   candidate list (`index.html`, `startHostVoting({... candidates:
+   gacGame.players.filter(p => p.alive).map(...) })`) doesn't exclude Sam —
+   CLAUDE.md is explicit that Sam is never a vote candidate. The Sam-driven
+   `"startVote"` handler (`onGacSamDay`) builds its own candidate list
+   correctly (`p.alive && p.roleId !== "Sam"`). The host's own version is
+   the one that's wrong. Confirmed by reading both side by side; not fixed
+   this pass — logged separately per Scott's instruction.
+8. **[HELD — its own project, not scoped yet]** Reword "killing" to
    "robbing their house" game-wide: Belsnickel, Grinches, Krampus, Mrs.
    Claus's save, Jack Frost, manual host adjustments, spoken narration, the
    simple/smart logs, and the narration audio clips. Needs the full replacement

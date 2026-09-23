@@ -557,6 +557,14 @@ export function gacBroadcastPeekCount(info) {
 export function gacBroadcastSleep(night) {
   if (hostSession) hostSession.room.send("gac_sleep", { night: night || null }, true);
 }
+// A public rule-break (Scrooge/Bad Santa) is never secret — opposite of the
+// dumb-log rule — so it's fine to say why. Deliberately its own message
+// type, unconditional and separate from gac_day_summary: it must never be
+// gated by the results-distribution setting (unrelated concern) and must
+// never force every phone's screen to rebuild into a results view mid-day.
+export function gacBroadcastRuleBreakAnnouncement(text) {
+  if (hostSession) hostSession.room.send("gac_rule_break", { text }, true);
+}
 // Broadcast a Cupid love-reveal update (per-player status or the running count).
 export function gacBroadcastLoveReveal(info) {
   if (hostSession) hostSession.room.send("gac_love", info, true);

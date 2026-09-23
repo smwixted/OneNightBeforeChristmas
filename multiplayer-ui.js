@@ -19,13 +19,13 @@ import { configured, joinRoom, createVoteSession,
          startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch,
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
-         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm }
-  from "./multiplayer.js?v=95";
+         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacBroadcastRuleBreakAnnouncement }
+  from "./multiplayer.js?v=96";
 
 export { configured, startSession, endSession, getHostSession, broadcastRoles, renameHost, broadcastGameSwitch,
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
-         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm,
+         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacBroadcastRuleBreakAnnouncement,
          gacMountHostCheat };
 
 // Give the GAC host the SAME cheat sheet the players get — same bottom-right
@@ -239,6 +239,15 @@ export function ensureStyles() {
     box-shadow:0 3px 12px rgba(0,0,0,.5)}
   .mpDeadBanner.show{display:block}
   .mpDeadSkull{font-size:18px;margin-right:4px}
+  /* A public rule-break announcement — top-pinned like the dead banner, but
+     auto-hides after a few seconds instead of standing. Neutral dark/gold,
+     not red (that means "you're eliminated") and not green (no green
+     result boxes, per house style). */
+  .mpRuleBreakBanner{position:fixed;top:0;left:0;right:0;z-index:9450;display:none;
+    background:rgba(20,20,30,.92);color:#ffe9c7;border-bottom:2px solid #ffcc88;
+    font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:15px;
+    text-align:center;padding:10px 14px;box-shadow:0 3px 12px rgba(0,0,0,.5)}
+  .mpRuleBreakBanner.show{display:block}
   /* Push the page down so the banner never covers the screen content. */
   body.mpHasDeadBanner .mpLayer{padding-top:46px;box-sizing:border-box}
   .mpCheatBtn{position:fixed;bottom:16px;right:16px;z-index:9100;
@@ -1641,12 +1650,6 @@ export function startPlayerClient(code) {
     if (s.swaps && s.swaps.length){
       s.swaps.forEach(sw => wrap.append(el("div", { className:"mpSub", innerHTML:`🔄 <b>${sw.a}</b> and <b>${sw.b}</b> were swapped — switch seats!` })));
     }
-    // A public rule-break (Scrooge/Bad Santa) — GAC-only field, never set by
-    // ONBC's own broadcasts, so this is purely additive there: undefined for
-    // any ONBC payload, this block simply never renders.
-    if (s.ruleBreakAnnouncement){
-      wrap.append(el("div", { className: "mpGacResult", innerHTML: s.ruleBreakAnnouncement }));
-    }
     if (s.afterVote){
       if (s.votedOut){
         wrap.append(el("div", { className:"mpGacResult", innerHTML:`🗳️ <b>${s.votedOut}</b> was voted out.` }));
@@ -1689,6 +1692,25 @@ export function startPlayerClient(code) {
     }
     mpDeadBannerEl.classList.toggle("show", mpAmEliminated);
     document.body.classList.toggle("mpHasDeadBanner", mpAmEliminated);
+  }
+  // ---- Public rule-break announcement (Scrooge / Bad Santa) ----
+  // A transient toast, appended to document.body like the dead banner so it
+  // works regardless of which screen is currently showing — deliberately
+  // does NOT touch wrap, so it never interrupts a vote, discussion wait, or
+  // anything else already on screen. Auto-hides; doesn't stand like the
+  // dead banner does.
+  let mpRuleBreakBannerEl = null;
+  let mpRuleBreakBannerTimer = null;
+  function mpShowRuleBreakBanner(text){
+    if (!text) return;
+    if (!mpRuleBreakBannerEl){
+      mpRuleBreakBannerEl = el("div", { className: "mpRuleBreakBanner" });
+      document.body.appendChild(mpRuleBreakBannerEl);
+    }
+    mpRuleBreakBannerEl.textContent = text;
+    mpRuleBreakBannerEl.classList.add("show");
+    clearTimeout(mpRuleBreakBannerTimer);
+    mpRuleBreakBannerTimer = setTimeout(() => { mpRuleBreakBannerEl.classList.remove("show"); }, 6000);
   }
   // Read the day-summary's "out" list to keep the banner in sync.
   function mpSyncEliminatedFrom(s){
@@ -2315,6 +2337,11 @@ export function startPlayerClient(code) {
             waiting();
             if (window.__showGame) window.__showGame(payload.game, { fromHost: true });
           }
+          // A public rule-break (Scrooge/Bad Santa) — unconditional, GAC-only
+          // message type, never sent by ONBC. Deliberately does NOT rebuild
+          // wrap: whatever screen this player is on (discussion wait, vote,
+          // results) stays exactly as it was underneath the toast.
+          if (type === "gac_rule_break") { mpShowRuleBreakBanner(payload && payload.text); }
           if (type === "roles") {
             cheatData = payload.cheat || payload.roles || cheatData;
             if (payload.hostIsPlayer !== undefined) hostIsPlayer = !!payload.hostIsPlayer;

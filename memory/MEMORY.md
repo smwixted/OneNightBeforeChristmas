@@ -1,0 +1,1 @@
+- [No unrequested approximations in rules code](feedback_no_unrequested_approximations.md) — implement brute-force/literal request first, benchmark, propose restrictions only after, one at a time
