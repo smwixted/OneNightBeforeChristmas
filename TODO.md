@@ -46,6 +46,139 @@ don't just delete them (keeps history of what was fixed and why).
   player's screen) — that function's distribution-gating and full-screen
   rebuild were never appropriate for a mid-day announcement to begin with.
 
+- **[shipped 2026-09-23]** Real-device playtest found a family of ordering/
+  routing bugs, all fixed:
+  - **Wet Bandits center-card reveal fired before the clarifying question.**
+    Physical deal, 2+ center cards: `onGacChoice`'s phone-dispatch handler and
+    the host's own inline decision UI each guessed `centerCards[0]` and
+    revealed it immediately, BEFORE `gacMaybeInsertWetCenterPick`'s "which
+    center card was it?" question ever ran — telling Sam/the host the answer
+    ahead of asking them. Fixed by gating that immediate reveal on
+    `!wetAmbiguous` (physical + 2+ center cards) in both places, and adding a
+    new reveal — using the real chosen card, not a guess — once the
+    clarifying question is actually answered. Factored the reveal-and-hold
+    logic (identical in both call sites) into one shared `gacSendWetStealReveal()`.
+  - **Jack Frost's revenge prompt didn't route to Sam.** `gacCheckJackFrostRevenge()`'s
+    "does Frost have his own phone?" check only looked at
+    `settings.gacPlayerChoices` — it never checked for a non-host Sam running
+    the night in Sam-inputs mode, so it fell through to the HOST's own
+    tracker instead, unlike every other private decision (which all route to
+    Sam first via the same priority order used in `gacDispatchToPhone`). Fixed
+    to check `gacSamOnPhone()` first, same priority as everywhere else.
+  - **Jack Frost's prompt could fire before results were revealed.** Both
+    `gacOpenTracker` (night end) and `gacApplyVoteResult` (vote end) called
+    `gacCheckJackFrostRevenge()` immediately after broadcasting the day
+    summary — but if that summary was gated to a recipient (not yet shared to
+    the table), the prompt could ask Sam/the host to resolve a death nobody
+    had been told about yet. Fixed by only firing it immediately when NOT
+    gated (`!gacPendingShareSummary`); the deferred case now fires from
+    `gacRevealPendingResults()` itself, once results actually reach the
+    table (covers both the explicit "Share Results" tap and the automatic
+    reveal-on-advance guard).
+  - **Host screen showed an app card image during a physical deal's card
+    check.** `gacStartCardCheck()`'s per-player phone push and
+    `gacPushChangedCards()` (Wet steal / Krampus-convert card refresh) both
+    sent `image: r.image` unconditionally, gated only on `gacPlayerChoices`,
+    never on `gacVirtualDeal` — unlike every other card-reveal path in the
+    file (`gacShowTrackHostCard`, `gacShowHostOwnCard`,
+    `gacRenderLoveRevealStatus`'s host card, `gacSendVirtualCards`), which all
+    correctly show text instead of an image in a physical deal. Fixed both:
+    `gacStartCardCheck` now sends a `physical:true` text-only payload (new
+    `showCardCheckPhysical()` in `multiplayer-ui.js` renders it — no
+    hold-to-reveal image control, just a confirm button, matching the
+    existing host-inline physical wording); `gacPushChangedCards` now no-ops
+    entirely in a physical deal (matches its own Krampus-conversion comment:
+    physical games use the narrator's tap, not a phone popup).
+  - All four verified via `node -c` on every touched file, module syntax
+    check + div-balance on `index.html`, and `node test/gac-sim/run.mjs`
+    (0 violations, 33/33 scenarios — unaffected since none of this touched
+    `gac-engine.js`). **Needs Scott's real-device pass** — see the test list
+    below.
+  - **Investigated, not a bug found:** Mrs. Claus not being told who was
+    attacked when she's the target. Traced the full pipeline (decision def →
+    `gacBuildPhonePrompt`'s `{victim}` substitution → `gacDispatchToPhone`'s
+    Sam-inputs routing → `gacSendPrompt` → `renderGacPrompt`'s `p.label`
+    render; separately, the host-inline `gacRenderInlineDecision` path) —
+    every step correctly includes the victim's name regardless of self-target.
+    Could not reproduce the missing info from code alone. Needs more detail
+    from Scott (exact screen/device, exact text seen) before touching
+    anything here.
+  - **ASK, resolved by the Frost routing fix above:** Sam's phone showed the
+    "Eliminate Ebenezer Scrooge" button during the Frost prompt. Root cause:
+    in the OLD (pre-fix) routing, Frost's decision never reached Sam's phone
+    at all (see above) — it was resolved on the host's tracker instead, so
+    Sam's phone just sat on its last-rendered day screen (with the Scrooge
+    button, correctly shown per item 6 below) while nothing was pushed to it.
+    Now that Frost's prompt correctly reaches Sam's phone, `renderGacPrompt`'s
+    full-screen rebuild will hide the Scrooge button for the duration of that
+    prompt automatically — same as it already does for every other private
+    decision (wetSteal, santaInspect, etc.). Open design question for Scott:
+    should the Scrooge button stay reachable even while another decision is
+    pending (would need to move it outside the decision-prompt's rebuilt
+    `wrap`, e.g. a floating element like the rule-break toast), or is
+    "hidden during other decisions, same as everything else" the intended
+    behavior? Not changed either way — flagging for a decision, not guessing.
+    **[resolved 2026-09-26 — see below]** Scott confirmed: always visible
+    during the day.
+
+- **[shipped 2026-09-26]** Wrong-winner bug: the game could be declared over,
+  shared as final, and broadcast as a win while Jack Frost's revenge kill was
+  still outstanding — his kill can change who wins, so this wasn't a timing
+  bug, it was a correctness bug. Root cause: last round's deferred-Frost-check
+  fix (2026-09-23) lived only inside `gacRevealPendingResults()`, but
+  `onGacShareResults`'s game-over branch bypasses that function entirely
+  (it clears `gacPendingShareSummary` directly and calls `gacShareResults()`)
+  — so a game-ending vote with a non-host Sam (routed to Sam via
+  `routeToSamAtEnd`) could reach Share with Frost never having been asked.
+  Fixed by gating on OBSERVABLE state instead of the `gacFrostPending` flag
+  (the trap Scott called out: on this exact path the revenge check itself
+  never ran, so the flag was never set) — new `gacFrostRevengeOutstanding()`
+  checks for a dead, unresolved Frost directly. `gacResolveWin()` now returns
+  a new `"frostpending"` sentinel (parallel to the existing `"coinpending"`)
+  whenever a decisive result coincides with that, and a new `gacWinIsFinal(w)`
+  helper (`!!w && w !== "coinpending" && w !== "frostpending"`) replaced
+  every hand-rolled `w !== "coinpending"` check across the file (9 call
+  sites: `onGacShareResults`'s gameOver check, `gacBroadcastDaySummary`'s
+  win/gameEnded/routeToSamAtEnd computation, `gacShareResults`,
+  `gacShowWinIfAny` — plus a new explicit no-op branch there for
+  `"frostpending"` so it doesn't fall through to the generic "Game over"
+  label — `gacUpdateTrackControls`'s Share-button gate, and the diagnostic
+  chars table's Winner/Loser badges). Also added a defensive re-check inside
+  the host's own Share Results click handler. This makes the fix self-
+  reinforcing: while Frost is outstanding, `gameEnded`/`routeToSamAtEnd` are
+  false, so results fall through to the NORMAL (ungated, non-final) reveal
+  path instead of the game-end gate — which, combined with the existing
+  `!gacPendingShareSummary` immediate-fire guard, means Frost's prompt fires
+  as soon as results genuinely reach the table, exactly once, via the same
+  single mechanism regardless of whether the game happens to be ending.
+  Confirmed with Scott that "before results are revealed" means the WHOLE
+  TABLE, not just the gated recipient holding them — the broader interpretation
+  from 2026-09-23 was correct and stays; this closes the new hole without
+  narrowing that. Verified: syntax + module + div-balance checks on all
+  files, `node test/gac-sim/run.mjs` (0 violations — no `gac-engine.js`
+  changes this round, run as a sanity check anyway given the scope).
+- **[shipped 2026-09-26]** Mrs. Claus self-save block had no explanation on
+  the phone (Sam's phone in Sam-inputs mode, or her own phone in player-
+  choices mode) — only the Yes button going grey, no reason, while the host's
+  own inline screen already explained it. Root cause, found while fixing:
+  `gacBuildPhonePrompt` was setting `prompt.note` correctly, but
+  `renderGacPrompt` (`multiplayer-ui.js`) never actually rendered `p.note` at
+  all — it only exists in `showSamNarration`'s unrelated narration-beat
+  renderer. Added the missing render to `renderGacPrompt` (generic, so it
+  also surfaces Krampus's pre-existing "You will tap their shoulder…" note,
+  which was silently swallowed the same way) and set the same wording the
+  host shows ("Mrs. Claus can't save herself.") for the self-save case.
+- **[shipped 2026-09-26]** Scrooge button scope: confirmed with Scott — when
+  a non-host Sam is running, the host tracker's copy is now suppressed
+  (`gacUpdateScroogeButton` checks `gacSamOnPhone()`); it still shows on the
+  host tracker when there's no separate Sam. Also made it persistently
+  visible on Sam's phone during the day per Scott's answer, and added
+  `body.mpHasScroogeFloat .mpLayer{padding-bottom:150px}` so a long button
+  list (Jack Frost's revenge — every living player) doesn't end up with its
+  last rows hidden under the floating panel — **still needs Scott's real-
+  device check per his item 5**, this was a code-level guess at enough
+  clearance, not a measured one.
+
 ## Open items
 
 1. **[done 2026-09-20]** Host screen flipped to the setup/character screen
@@ -137,6 +270,51 @@ don't just delete them (keeps history of what was fixed and why).
    pass-through; (b) confirm ONBC untouched (shares `appendResultLines`,
    but the host-side reshaping is GAC-only code, doesn't touch ONBC's own
    call path).
+   - **[investigated 2026-09-23, root causes confirmed, not built yet —
+     Scott wants to see the approach first]**
+     - **The doubled "results are with X, waiting to be revealed" message**:
+       confirmed two independent hand-built copies of the exact same string,
+       rendered into two different elements that both stay on screen at once.
+       `gacRenderTrackerResultArea()` (`index.html`) writes it into
+       `#gacTrackResult` as plain text whenever `gacPendingShareSummary` is
+       gated away from the host. Separately, `gacShowWinIfAny()` writes the
+       SAME string into `#gacTrackWin` as a boxed `.win` div, specifically
+       once the game has ended AND results are still gated to Sam — which
+       can both be true at once (a game-ending night, results gated),
+       producing the visible double-render Scott saw.
+     - **The garbage-box emoji**: `#gacTrackResult`/`.win`/etc. inherit the
+       custom decorative `"NitemareFont"` (`Fonts/Nitemare.ttf`), applied
+       broadly across the host UI's CSS (starting from `body`). Display
+       fonts like this typically don't carry emoji glyphs, and the browser
+       won't fall through the font stack once a font claims a codepoint (even
+       with a blank/placeholder glyph) — this matches Scott's own diagnosis.
+       The player/Sam side (`multiplayer-ui.js`'s `.mpSub`/`.mpGacResult`
+       etc.) doesn't use NitemareFont, which is why the exact same emoji
+       render fine there.
+     - **The adapter need, confirmed structurally, not just payload-shape**:
+       `appendResultLines(wrap, s)` also reads `myName` from its ENCLOSING
+       closure (inside `startPlayerClient`), not just from its `s`/`wrap`
+       parameters — so it can't be called as-is from `index.html`. Proposed:
+       add `myName` as an explicit third parameter (defaulting call sites
+       inside `multiplayer-ui.js` to the existing closure variable, so
+       nothing changes for players/Sam), export the function, and have the
+       host build a small adapter object (`{ win, players: [...], swaps,
+       afterVote, votedOut, deaths, ... }` shaped like what `appendResultLines`
+       already expects, using `gacGame`/`gacLastNightReport`/etc.) and pass
+       `settings.mpHostName` (or `null` for a pure narrator) as `myName`.
+       Both `gacRenderTrackResult` and `gacShowWinIfAny`'s text-generation
+       would route through this shared call; `gacRenderTrackList`'s
+       tap-to-toggle roster and the Sam Settings button are separate DOM
+       sections, untouched by this — the host keeps both host-only
+       affordances exactly as today.
+     - Fixing the double-render and font issues piecemeal (patch each hand-
+       built copy separately) is possible but would leave a third
+       independent copy for future results-related text to drift from — the
+       renderer-unification above still seems the better fix given how many
+       times this exact "hand-copied on the host, correct on the phone"
+       pattern has bitten this project already (Scrooge button, the day-
+       results centering, now this). Scott asked to see the approach before
+       it's built — this is that proposal, not yet implemented.
 6. Scrooge confirmation: change the button-relabel "tap to confirm" flow
    into a Yes/No popup. Apply to BOTH the host tracker's Scrooge button and
    Sam's-phone Scrooge button, reading from the same shared `GAC_SCROOGE_SPEC`

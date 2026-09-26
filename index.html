@@ -1337,7 +1337,7 @@ import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpCo
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
          gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles, gacBroadcastRuleBreakAnnouncement }
-  from "./multiplayer-ui.js?v=210";
+  from "./multiplayer-ui.js?v=213";
 import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
 
 // ---------- PLAYER JOIN MODE ----------
@@ -1627,6 +1627,11 @@ function gacRevealPendingResults(){
       gacUpdateScroogeButton();
     }
   } catch(_){}
+  // The table now actually knows tonight's deaths — if Jack Frost died and his
+  // revenge check was deferred (held back by gacOpenTracker while results were
+  // still gated), run it now. Safe to call unconditionally: it no-ops unless
+  // there's a dead, unresolved Frost.
+  try { gacCheckJackFrostRevenge(); } catch(_){}
   return true;
 }
 let gacLockedBefore = 0;         // Back cannot step to an index below this (state already mutated)
@@ -2731,6 +2736,48 @@ function gacScheduleAutoAdvance(){
     }
   }
 }
+// Shared by both the phone-dispatch wetSteal/wetCenterPick handling above and
+// the host's own inline decision UI: show the "you are now X" / "the Wet
+// Bandit is now X" reveal and hold the night until it's acknowledged. Kept as
+// one function so the two call sites (ambiguous vs. unambiguous resolution)
+// can't drift into different wording or a different hold/ack mechanism.
+// aboutVictim: true when roleId is what the ROBBED player received (Wet stole
+// FROM a player, ambiguous direction) rather than what the Wet Bandit became.
+// Returns true if a reveal was actually sent (and the night is now held on
+// its ack) — false means the caller should fall through to its normal advance.
+function gacSendWetStealReveal(roleId, wetName, aboutVictim){
+  if (!roleId) return false;
+  const samPhone = (typeof gacSamOnPhone === "function") ? gacSamOnPhone() : null;
+  const toSam = !!(samPhone && !settings.gacPlayerChoices);
+  const recipient = toSam ? samPhone : wetName;
+  if (!recipient) return false;
+  const r = GAC_ROSTER.find(x => x.id === roleId) || {};
+  // Card IMAGE only when the app owns the cards (virtual deal). Physical:
+  // the real card is the source of truth.
+  const showCardImg = !!settings.gacVirtualDeal;
+  let bodyHtml;
+  if (toSam){
+    // Sam is the moderator — tell them who ended up with the card so they can
+    // hand out the right one when it's ambiguous.
+    const who = aboutVictim ? "The player who was robbed" : "The Wet Bandit";
+    bodyHtml = showCardImg
+      ? `<div style="text-align:center"><img src="${r.image}" style="width:150px;max-width:60vw;border-radius:12px;border:3px solid #ffd24d"><div style="margin-top:6px;font-weight:bold">${who} is now ${r.name}</div></div>`
+      : `<div style="text-align:center">${who} took a card and is now <b>${r.name}</b>. Make sure the Wet Bandit card went to the center and the center card went to anyone they stole from.</div>`;
+  } else {
+    bodyHtml = showCardImg
+      ? `<div style="text-align:center"><img src="${r.image}" style="width:150px;max-width:60vw;border-radius:12px;border:3px solid #ffd24d"><div style="margin-top:6px;font-weight:bold">You are now ${r.name}</div></div>`
+      : `<div style="text-align:center">Look at the card you took — that's your new role now. Put the Wet Bandit card in the center (and give the center card to anyone you stole from).</div>`;
+  }
+  try { gacSendInfo(recipient, { title: toSam ? "Wet Bandit's steal" : "You stole a card",
+    needsAck:true, ackKey:"wetSteal", html: bodyHtml }); } catch(_){}
+  if (gacAutoTimer){ clearTimeout(gacAutoTimer); gacAutoTimer = null; }
+  if (gacAutoAbsenceTimer){ clearTimeout(gacAutoAbsenceTimer); gacAutoAbsenceTimer = null; }
+  if (gacAutoGraceTimer){ clearTimeout(gacAutoGraceTimer); gacAutoGraceTimer = null; }
+  gacAutoNote(null); gacHidePauseBar();
+  gacAwaitingAck = "wetSteal";
+  gacArmAckNudge(recipient);   // "still there?" if they don't tap Done
+  return true;
+}
 // Called when a decision's answer arrives (a phone reply, the grinch wheel
 // locking, or a local pick) — advance the night promptly. We DON'T re-run the
 // long random timer here: the player already acted, so a short beat to let the
@@ -2894,7 +2941,7 @@ function gacRegisterAckHandler(){
       let gameOver = false;
       try {
         const w = gacResolveWin(checkWin(gacGame, { afterVote: gacVoteJustHeld }));
-        gameOver = !!w && w !== "coinpending";
+        gameOver = gacWinIsFinal(w);
       } catch(_){}
       if (gameOver){
         gacPendingShareSummary = null;
@@ -3100,7 +3147,17 @@ function gacRegisterPhoneHandler(){
       }
       // Wet Bandits: reply privately with the card they stole (their new role),
       // and hold the night until they tap "Done" so they actually see it.
-      if (key === "wetSteal" && payload.value){
+      // PHYSICAL deal with 2+ center cards is ambiguous — the app doesn't know
+      // WHICH center card is involved until gacMaybeInsertWetCenterPick's
+      // clarifying question is answered (inserted right after this step by
+      // gacNext()). In that case, don't reveal anything here — just let the
+      // night advance normally into that question, and reveal once ITS answer
+      // arrives (see the "wetCenterPick" block below). Revealing here first
+      // used to default to centerCards[0] as a guess, telling Sam an answer
+      // before they'd told the app which card it actually was.
+      const wetAmbiguous = !settings.gacVirtualDeal && gacGame
+        && (gacGame.centerCards || []).length >= 2;
+      if (key === "wetSteal" && payload.value && !wetAmbiguous){
         const wetName = gacDecisionOwnerName("wetSteal");
         let stolenRole = null;
         if (payload.value === "center"){
@@ -3109,39 +3166,20 @@ function gacRegisterPhoneHandler(){
           const t = gacGame.players.find(p => p.id === payload.value);
           stolenRole = t ? t.roleId : null;
         }
-        // Who sees the reveal? In the Sam-narrated version (non-host Sam runs and
-        // inputs choices) it goes to SAM — the Wet player's phone gets NOTHING.
-        // Only when players make their own choices does the Wet player see it.
-        const samPhone = (typeof gacSamOnPhone === "function") ? gacSamOnPhone() : null;
-        const toSam = !!(samPhone && !settings.gacPlayerChoices);
-        const recipient = toSam ? samPhone : wetName;
-        if (recipient && stolenRole){
-          const r = GAC_ROSTER.find(x => x.id === stolenRole) || {};
-          // Card IMAGE only when the app owns the cards (virtual deal). Physical:
-          // the real card is the source of truth.
-          const showCardImg = !!settings.gacVirtualDeal;
-          let bodyHtml;
-          if (toSam){
-            // Sam is the moderator — tell them who the Wet Bandit became so they
-            // can hand out the right center card when it's ambiguous.
-            bodyHtml = showCardImg
-              ? `<div style="text-align:center"><img src="${r.image}" style="width:150px;max-width:60vw;border-radius:12px;border:3px solid #ffd24d"><div style="margin-top:6px;font-weight:bold">The Wet Bandit is now ${r.name}</div></div>`
-              : `<div style="text-align:center">The Wet Bandit took a card and is now <b>${r.name}</b>. Make sure the Wet Bandit card went to the center and the center card went to anyone they stole from.</div>`;
-          } else {
-            bodyHtml = showCardImg
-              ? `<div style="text-align:center"><img src="${r.image}" style="width:150px;max-width:60vw;border-radius:12px;border:3px solid #ffd24d"><div style="margin-top:6px;font-weight:bold">You are now ${r.name}</div></div>`
-              : `<div style="text-align:center">Look at the card you took — that's your new role now. Put the Wet Bandit card in the center (and give the center card to anyone you stole from).</div>`;
-          }
-          try { gacSendInfo(recipient, { title: toSam ? "Wet Bandit's steal" : "You stole a card",
-            needsAck:true, ackKey:"wetSteal", html: bodyHtml }); } catch(_){}
-          if (gacAutoTimer){ clearTimeout(gacAutoTimer); gacAutoTimer = null; }
-          if (gacAutoAbsenceTimer){ clearTimeout(gacAutoAbsenceTimer); gacAutoAbsenceTimer = null; }
-          if (gacAutoGraceTimer){ clearTimeout(gacAutoGraceTimer); gacAutoGraceTimer = null; }
-          gacAutoNote(null); gacHidePauseBar();
-          gacAwaitingAck = "wetSteal";
-          gacArmAckNudge(recipient);   // "still there?" if they don't tap Done
-          return;
-        }
+        if (gacSendWetStealReveal(stolenRole, wetName, false)) return;
+      }
+      // The clarifying question (physical deal, 2+ center cards only) — now we
+      // know exactly which center card was involved, so THIS is where the
+      // reveal actually belongs. gacNightDecisions.wetSteal (captured before
+      // this question was ever asked) says which direction it runs: "center"
+      // means the Wet Bandit themselves took that card; a player id means that
+      // player received it after being robbed.
+      if (key === "wetCenterPick" && payload.value != null && gacGame){
+        const idx = parseInt(payload.value, 10);
+        const center = gacGame.centerCards || [];
+        const chosenRole = (!isNaN(idx) && center[idx]) ? center[idx] : null;
+        const wetName = gacDecisionOwnerName("wetSteal");
+        if (chosenRole && gacSendWetStealReveal(chosenRole, wetName, gacNightDecisions.wetSteal !== "center")) return;
       }
       // A phone only sends after the player taps Confirm, so this is a complete
       // answer — advance the night now (as long as we're actually on this
@@ -4460,8 +4498,18 @@ function gacStartCardCheck(){
   const liveReveal = gacSessionActive() && settings.gacPlayerChoices;
   gacLoveState = { lovers: new Set(), confirmed: new Set(), total: livingPlayers.length, live: liveReveal, cardCheck: true };
   if (liveReveal){
+    // Physical deal: the app never dealt these cards, so it has no image to
+    // show — showing one anyway would contradict (or just duplicate/leak) the
+    // real card in the player's hand. Send a text-only confirm instead; the
+    // player looks at their actual card, same as the host's own on-screen
+    // version below already does.
+    const physical = !settings.gacVirtualDeal;
     livingPlayers.forEach(p => {
       if (settings.mpHostPlayer && p.name === settings.mpHostName) return;  // host confirms on-screen
+      if (physical){
+        try { gacSendInfo(p.name, { cardCheck: true, physical: true }); } catch(_){}
+        return;
+      }
       const r = GAC_ROSTER.find(x => x.id === p.roleId) || {};
       try { gacSendInfo(p.name, { cardCheck: true, name: r.name, image: r.image, desc: r.desc || "" }); } catch(_){}
     });
@@ -4633,7 +4681,12 @@ function gacSnapshotRoles(){
 // gacMaybeInsertKrampusTap). So there's no separate phone popup to send.
 function gacNotifyConverts(beforeSnap){ /* handled by tap beat + gacPushChangedCards */ }
 function gacPushChangedCards(beforeSnap){
-  if (!gacSessionActive() || !gacGame || !settings.gacPlayerChoices) return;
+  // Physical deal: the app doesn't own these cards, so there's no fresh card
+  // art to push — same reasoning as the Krampus-tap note above. The table's
+  // generic "quietly check your card" beat (gacStartCardCheck) already covers
+  // telling everyone to re-check their real card; this function's job is only
+  // to refresh the APP's OWN rendering of a card, which only exists in virtual.
+  if (!gacSessionActive() || !gacGame || !settings.gacPlayerChoices || !settings.gacVirtualDeal) return;
   const SELF_ELIM = new Set(["BadSanta","Scrooge"]);
   gacGame.players.forEach(pl => {
     const was = beforeSnap[pl.id];
@@ -4859,7 +4912,13 @@ function gacBuildPhonePrompt(key){
     let yesDisabled = def.victimSrc && !vid;
     if (key === "mrsSave" && vid){
       const mrs = gacHolder("Mrs");
-      if (mrs && vid === mrs.id) yesDisabled = true;
+      if (mrs && vid === mrs.id){
+        yesDisabled = true;
+        // Same explanation the host's own inline screen shows — a disabled
+        // button with no reason was the host-vs-phone drift Scott flagged
+        // (same pattern as Buddy and the old in-wrap Scrooge button).
+        prompt.note = "Mrs. Claus can't save herself.";
+      }
     }
     prompt.yesDisabled = !!yesDisabled;
   }
@@ -5606,7 +5665,15 @@ function gacRenderInlineDecision(key, narrText){
       // No target chosen — just move on (a skipped inspection).
     }
     // Wet Bandits: first Confirm reveals the STOLEN CARD image; second moves on.
-    if (key === "wetSteal" && !wetRevealed){
+    // Physical deal with 2+ center cards is ambiguous — skip this reveal and
+    // let the night advance into gacMaybeInsertWetCenterPick's clarifying
+    // question instead (the wetCenterPick branch below does the real reveal
+    // once that's answered). Matches the phone-dispatch handler's fix — this
+    // used to default to centerCards[0] as a guess and reveal it immediately,
+    // before Sam had said which center card was actually involved.
+    const wetAmbiguous = !settings.gacVirtualDeal && gacGame
+      && (gacGame.centerCards || []).length >= 2;
+    if (key === "wetSteal" && !wetRevealed && !wetAmbiguous){
       const tid = gacNightDecisions[key];
       // The stolen card is either the CENTER card or another player's card.
       let stolenRoleId = null;
@@ -5626,6 +5693,27 @@ function gacRenderInlineDecision(key, narrText){
           res.innerHTML = settings.gacVirtualDeal
             ? `<div class="gacStolenCard"><img src="${r.image}" alt="${r.name}"></div><div class="gacStolenName">You stole: ${r.name}</div>`
             : `<div class="gacStolenName">Look at the card you took — that's your new role. Put the Wet Bandit card in the center (and give the center card to anyone you stole from).</div>`;
+        }
+        div.querySelectorAll(".gacChoiceBtn").forEach(b => { b.disabled = true; b.classList.add("locked"); });
+        wetRevealed = true;
+        confirmBtn.textContent = "Done ▶";
+        return;
+      }
+    }
+    // The clarifying question's answer — NOW we know exactly which center
+    // card was involved, so this is where the real reveal belongs.
+    if (key === "wetCenterPick" && !wetRevealed){
+      const idx = parseInt(gacNightDecisions[key], 10);
+      const center = (gacGame.centerCards || []);
+      const chosenRoleId = (!isNaN(idx) && center[idx]) ? center[idx] : null;
+      if (chosenRoleId){
+        const r = GAC_ROSTER.find(x => x.id === chosenRoleId) || {};
+        const res = div.querySelector(".gacInspectResult");
+        const aboutVictim = gacNightDecisions.wetSteal !== "center";
+        if (res){
+          res.innerHTML = settings.gacVirtualDeal
+            ? `<div class="gacStolenCard"><img src="${r.image}" alt="${r.name}"></div><div class="gacStolenName">${aboutVictim ? "The player received" : "You stole"}: ${r.name}</div>`
+            : `<div class="gacStolenName">${aboutVictim ? "Give the player that card — that's their new role." : "Look at the card you took — that's your new role."} Put the Wet Bandit card in the center (and give the center card to anyone you stole from).</div>`;
         }
         div.querySelectorAll(".gacChoiceBtn").forEach(b => { b.disabled = true; b.classList.add("locked"); });
         wetRevealed = true;
@@ -5821,7 +5909,13 @@ function gacScroogeEligible(){
 function gacUpdateScroogeButton(){
   const box = document.getElementById("gacTrackScroogeBtn");
   if (!box) return;
-  const scrooge = gacScroogeEligible();
+  // A non-host Sam runs the day from their own phone, which already gets its
+  // own copy of this control (the persistent floating panel) via
+  // gacStreamDayToSam — the host tracker doesn't also need one in that case
+  // (and showing both invites two people racing to tap Eliminate). Only when
+  // there's no separate Sam does the host tracker carry it.
+  const nonHostSam = (typeof gacSamOnPhone === "function") && gacSamOnPhone();
+  const scrooge = nonHostSam ? null : gacScroogeEligible();
   // Hides once results are shared, same gate the player self-report button
   // already uses — a present-but-inert button would just confuse whoever's
   // running the game, so it disappears rather than graying out.
@@ -5916,8 +6010,13 @@ function gacOpenTracker(report){
   // delivers them, not just some.
   gacStreamDayToSam();
   // Jack Frost's revenge: if he died overnight (and hasn't taken someone yet),
-  // he takes one living player down with him at the start of the day.
-  if (report && report.deaths && report.deaths.length) gacCheckJackFrostRevenge();
+  // he takes one living player down with him at the start of the day. BUT only
+  // once the table actually knows he died — if tonight's results are gated to
+  // a recipient (gacPendingShareSummary just got set by the broadcast above),
+  // asking "who does Frost take down" now would ask Sam/the host to resolve a
+  // death nobody has been told about yet. In that case gacRevealPendingResults()
+  // (called wherever results actually get shared) fires this check instead.
+  if (report && report.deaths && report.deaths.length && !gacPendingShareSummary) gacCheckJackFrostRevenge();
 }
 // Render the tracker's result area, respecting the night-results distribution.
 // If the host is playing as a PLAYER and tonight's results went to someone else,
@@ -5975,29 +6074,40 @@ function gacCheckJackFrostRevenge(){
     if (wrapEl) wrapEl.innerHTML = `❄️ Jack Frost took <b>${pl.name}</b> down with him.`;
   };
 
-  // Does Jack Frost have his own phone in this session?
-  const frostOnPhone = gacSessionActive() && settings.gacPlayerChoices &&
+  // Who answers this? Same priority order as every other private decision
+  // (see gacDispatchToPhone): a non-host Sam running the night in Sam-inputs
+  // mode (!gacPlayerChoices) answers EVERYTHING, including this — it must not
+  // fall through to the host's own tracker just because Frost himself has no
+  // phone dispatch in player-choices mode. Only when players make their own
+  // choices does Frost's own phone (if he has one and isn't the host) apply.
+  const samPhone = gacSessionActive() ? gacSamOnPhone() : null;
+  const toSam = !!(samPhone && !settings.gacPlayerChoices);
+  const frostOnPhone = !toSam && gacSessionActive() && settings.gacPlayerChoices &&
         !(settings.mpHostPlayer && frost.name === settings.mpHostName);
 
-  if (frostOnPhone){
-    // Send the decision to Jack Frost's phone and wait for his reply.
+  if (toSam || frostOnPhone){
+    const recipient = toSam ? samPhone : frost.name;
     gacAwaitingFrost = true;
     gacFrostResolver = resolveFrost;
     try {
-      gacSendPrompt(frost.name, {
+      gacSendPrompt(recipient, {
         key: "frostRevenge",
         title: "Jack Frost",
-        narr: "You were killed — but Jack Frost takes one player down with him.",
-        label: "❄️ Who do you take down with you?",
+        narr: toSam
+          ? `Jack Frost (${frost.name}) was killed — they take one player down with them.`
+          : "You were killed — but Jack Frost takes one player down with him.",
+        label: toSam ? `❄️ Who does ${frost.name} take down with them?` : "❄️ Who do you take down with you?",
         kind: "single",
         options: living.map(p => ({ text: p.name, value: p.id })),
       });
     } catch(_){}
-    // Show the host a neutral waiting note (no peeking at his choice).
+    // Show the host a neutral waiting note (no peeking at the choice).
     const wait = document.createElement("div");
     wait.className = "win";
     wait.style.cssText = "background:rgba(0,40,80,.6);border-color:#9cd2ff;color:#dff1ff";
-    wait.innerHTML = `❄️ <b>Jack Frost (${frost.name})</b> was killed — he's choosing who to take down on his phone…`;
+    wait.innerHTML = toSam
+      ? `❄️ <b>Jack Frost (${frost.name})</b> was killed — Sam is choosing who he takes down…`
+      : `❄️ <b>Jack Frost (${frost.name})</b> was killed — he's choosing who to take down on his phone…`;
     gacTrackResult.appendChild(wait);
     gacFrostHostWaitEl = wait;
     return;
@@ -6119,7 +6229,7 @@ function gacBroadcastDaySummary(report, opts){
   const coinPending = (win === "coinpending");
   const coinRevealed = !!(gacGame.coinFlip && gacGame.coinFlip.revealed);
   const payload = { night: gacNight, deaths, swaps, living, out,
-                    win: (win === "coinpending" ? null : (win || null)),
+                    win: (gacWinIsFinal(win) ? win : null),
                     afterVote, votedOut, tieEliminated, frostPending, frostTookDown, heartbreak,
                     coinPending,
                     coinFlip: (coinRevealed ? gacGame.coinFlip.winner : null),
@@ -6161,7 +6271,7 @@ function gacBroadcastDaySummary(report, opts){
   payload.simpleLog = gacBuildSimpleLog();
   // If the game has ended, include each player's personal win/loss so their
   // phone can show a "You win / You lose" banner (handles Burgermeister etc.).
-  if (win && win !== "coinpending"){
+  if (gacWinIsFinal(win)){
     payload.players = gacGame.players.filter(p => p.roleId !== "Sam").map(p => ({ name: p.name, won: gacPlayerWon(p, win, gacGame.players) }));
   }
   // Who sees the results. The distribution setting applies to the OVERNIGHT
@@ -6172,7 +6282,7 @@ function gacBroadcastDaySummary(report, opts){
   // at GAME END, the win/loss reveal is the narrator's to make — route the final
   // results to Sam first (like overnight results), so Sam sees them first and
   // reveals them to everyone. Only applies when a non-host Sam is running.
-  const gameEnded = !!(win && win !== "coinpending");
+  const gameEnded = gacWinIsFinal(win);
   const samRunning = (typeof gacSamOnPhone === "function") && gacSamOnPhone();
   const routeToSamAtEnd = gameEnded && samRunning;
   if (routeToSamAtEnd && payload.afterVote){
@@ -6273,7 +6383,7 @@ function gacPlayerWon(p, winningTeam, players){
 function gacShareResults(){
   if (!gacSessionActive() || !gacGame) return;
   const rawWin = (typeof checkWin === "function") ? gacResolveWin(checkWin(gacGame, { afterVote: true })) : null;
-  const win = (rawWin === "coinpending") ? null : rawWin;
+  const win = gacWinIsFinal(rawWin) ? rawWin : null;
   const living = gacGame.players.filter(p => p.alive && p.roleId !== "Sam").map(p => p.name);
   const out = gacGame.players.filter(p => !p.alive && p.roleId !== "Sam").map(p => p.name);
   const payload = {
@@ -6482,7 +6592,20 @@ function gacBuildCoinFlip(fixedWinner, alreadyRevealed, onFlip){
   return wrap;
 }
 
+// Is there a dead Jack Frost whose revenge kill hasn't landed yet? Checked
+// against OBSERVABLE game state (a dead, unresolved Frost) rather than the
+// gacFrostPending flag — on the path this exists to close, the revenge check
+// itself never got a chance to run (and so never set that flag), even though
+// the outstanding kill is just as real and could still change who wins.
+function gacFrostRevengeOutstanding(){
+  return !!(gacGame && gacGame.players.some(p => p.roleId === "Frost" && !p.alive && !p.frostResolved));
+}
 function gacResolveWin(w){
+  // A pending Frost revenge can still change the outcome (or turn a "nobody
+  // survived" draw into a real winner) — never let a caller treat this raw
+  // result as decided while that's true. Checked BEFORE the draw/coin-flip
+  // logic below, since it can override either branch.
+  if (w && gacFrostRevengeOutstanding()) return "frostpending";
   if (w !== "draw") return w;
   if (!settings.gacCoinFlipDraw) return "draw";
   if (!gacGame) return w;
@@ -6490,6 +6613,14 @@ function gacResolveWin(w){
   if (gacGame.coinFlip && gacGame.coinFlip.revealed) return gacGame.coinFlip.winner;
   // A draw is pending a flip — hold. The winner is NOT decided or leaked yet.
   return "coinpending";
+}
+// A win value is only ever safe to declare/share/broadcast as FINAL when it's
+// neither of the two "something is still pending" sentinels gacResolveWin can
+// return. Centralized so every caller treats "coinpending" and "frostpending"
+// identically instead of hand-rolling `w !== "coinpending"` and forgetting
+// the newer one (which is exactly how the game-over-skips-Frost hole happened).
+function gacWinIsFinal(w){
+  return !!w && w !== "coinpending" && w !== "frostpending";
 }
 // Decide + reveal the coin winner. Called ONLY when the host taps Flip, so the
 // winner is randomized at flip time — never earlier — and can't leak to phones.
@@ -6522,9 +6653,18 @@ function gacShowWinIfAny(opts){
     const _hostBlindEnd = (typeof gacSamOnPhone === "function") && gacSamOnPhone() &&
       settings.mpHostPlayer && !!gacPendingShareSummary &&
       gacPendingShareSummary._recipient !== settings.mpHostName;
-    if (_hostBlindEnd && w && w !== "coinpending"){
+    if (_hostBlindEnd && gacWinIsFinal(w)){
       const who = (gacPendingShareSummary && gacPendingShareSummary._recipient) || "Sam";
       winEl.innerHTML = `<div class="win" style="background:rgba(0,40,80,.6);border-color:#9cd2ff;color:#dff1ff">🌙 The night's results are with <b>${who}</b>.<br>Waiting for them to be revealed…</div>`;
+      gacUpdateTrackControls();
+      return w;
+    }
+    // A decisive result exists, but Jack Frost's revenge hasn't landed yet and
+    // could still change it — show nothing conclusive. gacCheckJackFrostRevenge's
+    // own UI (elsewhere on this screen) is what actually tells the host/Sam
+    // what's pending; this just refuses to declare a win over top of it.
+    if (w === "frostpending"){
+      winEl.innerHTML = "";
       gacUpdateTrackControls();
       return w;
     }
@@ -6576,6 +6716,9 @@ function gacShowWinIfAny(opts){
   return w;
 }
 document.getElementById("gacShareResults").onclick = () => {
+  // Belt-and-suspenders: the button is only ever shown once gacUpdateTrackControls
+  // sees a final win, but never let a stale render share a not-yet-final result.
+  if (gacFrostRevengeOutstanding()) return;
   gacShareResults();
   gacResultsShared = true;
   gacGameCompleted = true;    // next setup keeps names but clears card assignments
@@ -6599,11 +6742,11 @@ function gacUpdateTrackControls(){
   if (ssBtn){
     ssBtn.style.display = gacSelected.has("Sam") ? "inline-block" : "none";
   }
-  // "coinpending" means a draw is still waiting on the coin flip — the game
-  // isn't finished yet, so don't treat it as over (that surfaced Share Results
-  // before the coin had been flipped).
+  // "coinpending"/"frostpending" mean a decisive result exists but isn't final
+  // yet (waiting on the coin flip, or on Jack Frost's revenge) — don't treat
+  // either as over (that surfaced Share Results too early).
   const resolved = settings.gacNoTracking ? null : gacResolveWin(checkWin(gacGame, { afterVote: gacVoteJustHeld }));
-  const over = !!resolved && resolved !== "coinpending";
+  const over = gacWinIsFinal(resolved);
   // If the host X'd out mid-night, the night isn't finished — offer to restart
   // THIS night and hide the day-phase controls (vote/next) until it completes.
   if (gacNightInterrupted && !over){
@@ -6695,7 +6838,10 @@ function gacApplyVoteResult(result){
   try { gacUpdateScroogeButton(); } catch(_){}   // a vote (or the Charlie Brown tie) can eliminate Scrooge too
   try { gacStreamDayToSam(); } catch(_){}
   gacUpdateTrackControls();
-  gacCheckJackFrostRevenge();
+  // Same gating hazard as the night-end path (see gacOpenTracker/
+  // gacRevealPendingResults): don't ask about Frost's revenge while this
+  // vote's results are still held pending a recipient's reveal.
+  if (!gacPendingShareSummary) gacCheckJackFrostRevenge();
 }
 // Untracked game: just a vote TIMER on screen. Nobody is tracked, so there's no
 // elimination to record — the table votes and handles the outcome themselves.
@@ -6934,7 +7080,7 @@ function gacRenderCharsTable(){
     }
     // Winner / Loser badge (only once the game is over).
     const winTeam = gacResolveWin(checkWin(gacGame, { afterVote: gacVoteJustHeld }));
-    if (winTeam){
+    if (gacWinIsFinal(winTeam)){
       const won = gacPlayerWon(p, winTeam, gacGame.players);
       if (won === true) ident += `<span class="gacWinBadge win">🏆 Winner</span>`;
       else if (won === false) ident += `<span class="gacWinBadge lose">Loser</span>`;

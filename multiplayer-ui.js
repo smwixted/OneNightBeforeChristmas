@@ -250,6 +250,10 @@ export function ensureStyles() {
   .mpRuleBreakBanner.show{display:block}
   /* Push the page down so the banner never covers the screen content. */
   body.mpHasDeadBanner .mpLayer{padding-top:46px;box-sizing:border-box}
+  /* Reserve room at the bottom so a long scrollable list (e.g. Jack Frost's
+     revenge — every living player as a button) doesn't end up with its last
+     rows sitting underneath the fixed Scrooge panel, untappable. */
+  body.mpHasScroogeFloat .mpLayer{padding-bottom:150px;box-sizing:border-box}
   .mpCheatBtn{position:fixed;bottom:16px;right:16px;z-index:9100;
     background:#cfe0ea;color:#0f2c3d;border:none;border-radius:22px;
     padding:11px 22px;font-family:"GingerbreadFont",cursive;font-size:18px;letter-spacing:1px;
@@ -258,6 +262,13 @@ export function ensureStyles() {
     background:#cfe0ea;color:#0f2c3d;border:none;border-radius:22px;
     padding:11px 22px;font-family:"GingerbreadFont",cursive;font-size:18px;letter-spacing:1px;
     cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,.4)}
+  /* Sam-only persistent narrator control — sits in its own row above the
+     Game Log / Next Night / Cheat Sheet row so it never collides with them,
+     and stays visible over whatever screen (a decision prompt, etc.) is
+     currently in wrap, since it lives outside it. */
+  .mpScroogeFloat{position:fixed;bottom:72px;left:12px;right:12px;z-index:9100;display:none;
+    background:rgba(20,20,30,.92);color:#ffe9c7;border:1px solid #ffcc88;border-radius:14px;
+    padding:10px 14px;text-align:center;box-shadow:0 2px 10px rgba(0,0,0,.4);font-size:13px}
   /* Sam's Next Night — centered in the bottom bar, between Game Log & Cheat Sheet. */
   .mpSamNextNight{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);z-index:9100;
     background:darkgreen;color:#fff;border:none;border-radius:22px;
@@ -792,6 +803,10 @@ export function startPlayerClient(code) {
     if (p.img) wrap.append(el("img", { className:"gacSamNarrPortrait", src: p.img, style:"max-height:26vh;margin:6px auto 10px" }));
     if (p.narr) wrap.append(el("div", { className: "mpGacNarr", innerHTML: p.narr }));
     if (p.label) wrap.append(el("div", { className: "mpSub", innerHTML: p.label }));
+    // Explains a disabled option (e.g. Mrs. Claus can't save herself) or gives
+    // extra context (Krampus's tap-your-shoulder note) — same info the host's
+    // own inline screen already shows next to its version of this decision.
+    if (p.note) wrap.append(el("div", { className: "mpSub", style:"opacity:.85", innerHTML: p.note }));
 
     const chosen = { v: (p.kind === "twopick") ? ["",""] : "" };
 
@@ -887,6 +902,7 @@ export function startPlayerClient(code) {
     samSetupState = null;
     samDayControls = null; samDayResults = null;
     if (typeof mpHideSamNextNight === "function") mpHideSamNextNight();
+    if (typeof mpUpdateScroogeFloat === "function") mpUpdateScroogeFloat();   // hides — no day state left to show it from
   }
   // Shared "Everyone, go to sleep" screen shown to all phones at night start,
   // mirroring the narrator's opening beat, before the "night in progress" wait.
@@ -1145,6 +1161,7 @@ export function startPlayerClient(code) {
       mpShowGameLogBtn(logSrc);
     }
     renderSamDay();
+    mpUpdateScroogeFloat();
   }
   function renderSamDay(){
     onWaitingScreen = false;
@@ -1196,34 +1213,11 @@ export function startPlayerClient(code) {
     // If the game is over, no vote/next-night controls — just the results above.
     const gameOver = !!(s && s.win && s.win !== "coinpending");
 
-    // Persistent "Eliminate Ebenezer Scrooge" narrator control. Every piece
-    // of content here (label/subtitle/confirm text/rule text) comes from
-    // c.scroogeControl, fully resolved by the host (gacStreamDayToSam) —
-    // nothing is re-derived or re-typed on this side, so it can't drift
-    // from the host tracker's version.
-    const sc = c && c.scroogeControl;
-    if (!gameOver && sc){
-      const scroogeBox = el("div", { style:"margin-top:14px;text-align:center" });
-      const scroogeBtn = el("button", { className:"mpBtn gac full", textContent: sc.label });
-      scroogeBtn.onclick = () => {
-        if (scroogeBox.dataset.confirm === "1"){
-          try { if (room) room.send("gac_self_elim", { from: sc.playerName }); } catch(_){}
-          scroogeBtn.disabled = true; scroogeBtn.textContent = "Sent ✓";
-        } else {
-          scroogeBox.dataset.confirm = "1";
-          scroogeBtn.textContent = sc.confirmText;
-        }
-      };
-      scroogeBox.append(scroogeBtn);
-      const infoRow = el("div", { style:"opacity:.85;margin-top:4px" });
-      infoRow.append(el("span", { textContent: sc.playerName + " — " }));
-      infoRow.append(el("i", { textContent: sc.subtitleText }));
-      const infoBtn = el("button", { textContent:"❓", title:"What's the rule?", style:"margin-left:6px" });
-      infoBtn.onclick = () => { alert(sc.ruleText); };
-      infoRow.append(infoBtn);
-      scroogeBox.append(infoRow);
-      wrap.append(scroogeBox);
-    }
+    // The "Eliminate Ebenezer Scrooge" narrator control is rendered as a
+    // PERSISTENT floating element (mpUpdateScroogeFloat, below) instead of
+    // living here in the rebuilt wrap — Scott wants it reachable at any
+    // moment during the day, including while another decision prompt (e.g.
+    // Jack Frost's revenge) has replaced this screen. See mpUpdateScroogeFloat.
 
     if (!gameOver){
       // Mobile voting: hand the vote to every player's phone. The host runs it.
@@ -1422,6 +1416,10 @@ export function startPlayerClient(code) {
     // Wet Bandits card check — everyone holds to view their CURRENT card (which
     // may have changed) and confirms. Same confirm-count gate as the love reveal.
     if (p && p.cardCheck){
+      gacLoveConfirmed = false;
+      // Physical deal: the app never dealt this card, so there's nothing to
+      // show — text-only confirm that they checked their REAL card.
+      if (p.physical){ showCardCheckPhysical(); return; }
       myCard = {
         name: p.name || (myCard ? myCard.name : ""),
         image: p.image || (myCard ? myCard.image : ""),
@@ -1431,7 +1429,6 @@ export function startPlayerClient(code) {
         roleId: myCard ? myCard.roleId : null,
         selfElim: myCard ? myCard.selfElim : false
       };
-      gacLoveConfirmed = false;
       showCardCheck();
       return;
     }
@@ -1517,6 +1514,7 @@ export function startPlayerClient(code) {
       if (typeof mpShowGameLogBtn === "function") mpShowGameLogBtn(sForSam);
       samDayResults = sForSam;
       renderSamDay();
+      mpUpdateScroogeFloat();   // win state may have just changed — re-check gameOver gate
       return;
     }
     onResultScreen = false;
@@ -1745,6 +1743,53 @@ export function startPlayerClient(code) {
       : showSimpleLog(s));
   }
   function mpHideGameLogBtn(){ if (mpGameLogBtnEl) mpGameLogBtnEl.style.display = "none"; }
+
+  // ---- Persistent "Eliminate Ebenezer Scrooge" narrator control (Sam only) ----
+  // Lives OUTSIDE wrap (like the dead banner / rule-break toast / log button) so
+  // it stays reachable at any moment during the day — including while another
+  // decision prompt (Jack Frost's revenge, etc.) has replaced the main screen.
+  // Content is entirely driven by samDayControls.scroogeControl, streamed from
+  // the host (gacStreamDayToSam) — nothing is re-derived here, so it can't drift
+  // from the host tracker's own copy. Auto-hides once there's no eligible
+  // Scrooge (host cleared it) or the game is over — same gates the old in-wrap
+  // version used. Cleared whenever samDayControls itself clears (night start,
+  // game switch), same as everything else gated on that state.
+  let mpScroogeFloatEl = null;
+  function mpUpdateScroogeFloat(){
+    const sc = samDayControls && samDayControls.scroogeControl;
+    const gameOver = !!(samDayResults && samDayResults.win && samDayResults.win !== "coinpending");
+    if (!sc || gameOver){
+      if (mpScroogeFloatEl) mpScroogeFloatEl.style.display = "none";
+      document.body.classList.remove("mpHasScroogeFloat");
+      return;
+    }
+    if (!mpScroogeFloatEl){
+      mpScroogeFloatEl = el("div", { className: "mpScroogeFloat" });
+      document.body.appendChild(mpScroogeFloatEl);
+    }
+    mpScroogeFloatEl.innerHTML = "";
+    delete mpScroogeFloatEl.dataset.confirm;
+    const btn = el("button", { className:"mpBtn gac full", textContent: sc.label });
+    btn.onclick = () => {
+      if (mpScroogeFloatEl.dataset.confirm === "1"){
+        try { if (room) room.send("gac_self_elim", { from: sc.playerName }); } catch(_){}
+        btn.disabled = true; btn.textContent = "Sent ✓";
+      } else {
+        mpScroogeFloatEl.dataset.confirm = "1";
+        btn.textContent = sc.confirmText;
+      }
+    };
+    mpScroogeFloatEl.append(btn);
+    const infoRow = el("div", { style:"opacity:.85;margin-top:4px;text-align:center" });
+    infoRow.append(el("span", { textContent: sc.playerName + " — " }));
+    infoRow.append(el("i", { textContent: sc.subtitleText }));
+    const infoBtn = el("button", { textContent:"❓", title:"What's the rule?", style:"margin-left:6px" });
+    infoBtn.onclick = () => { alert(sc.ruleText); };
+    infoRow.append(infoBtn);
+    mpScroogeFloatEl.append(infoRow);
+    mpScroogeFloatEl.style.display = "block";
+    document.body.classList.add("mpHasScroogeFloat");
+  }
   // Spoiler-free running log (no roles) — available to players during play.
   // ---- Game log overlay ----
   // The log opens ON TOP of the player's current screen (results, waiting, a
@@ -2062,6 +2107,28 @@ export function startPlayerClient(code) {
     if (card) wrap.append(card);
     const confirmBtn = el("button", { className: "mpBtn gac", style:"margin-top:14px",
       textContent: gacLoveConfirmed ? "✓ Confirmed" : "I've seen my card ▶" });
+    confirmBtn.disabled = gacLoveConfirmed;
+    confirmBtn.onclick = () => {
+      gacLoveConfirmed = true;
+      confirmBtn.disabled = true; confirmBtn.textContent = "✓ Confirmed";
+      try { if (room) room.send("gac_love_confirm", { from: myName }); } catch(_){}
+    };
+    wrap.append(confirmBtn);
+    const countEl = el("div", { className: "mpPeekCount", id: "mpLoveCount", style:"margin-top:10px" });
+    countEl.textContent = gacLoveCount ? `🎴 ${gacLoveCount.count}/${gacLoveCount.total} confirmed` : "";
+    wrap.append(countEl);
+  }
+
+  // Physical-deal version of showCardCheck(): the app never dealt these cards,
+  // so there's no card art to hold/reveal — just a text confirm that they
+  // looked at their real one. Same confirm-count gate as the virtual version.
+  function showCardCheckPhysical(){
+    onWaitingScreen = false; onResultScreen = false;
+    wrap.innerHTML = "";
+    wrap.append(el("div", { className: "mpH", textContent: "🎴 Check your card" }));
+    wrap.append(el("div", { className: "mpSub", textContent: "Look at your real card. If it changed overnight, you're now that new role." }));
+    const confirmBtn = el("button", { className: "mpBtn gac", style:"margin-top:14px",
+      textContent: gacLoveConfirmed ? "✓ Confirmed" : "I've checked my card ▶" });
     confirmBtn.disabled = gacLoveConfirmed;
     confirmBtn.onclick = () => {
       gacLoveConfirmed = true;
