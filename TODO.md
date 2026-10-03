@@ -179,7 +179,106 @@ don't just delete them (keeps history of what was fixed and why).
   device check per his item 5**, this was a code-level guess at enough
   clearance, not a measured one.
 
+- **[shipped 2026-10-03]** Full playtest docket, 11 items, committed in 10
+  logical groups (see git log) so a regression from Scott's next test pass
+  can be bisected without re-testing everything:
+  - **Jack Frost prompt race (BLOCKER)**: `gacCheckJackFrostRevenge()`'s own
+    status broadcasts (`frostPending`/`frostTookDown`) were going through the
+    normal results-gating logic despite carrying no results to gate — a
+    null-report, non-afterVote call falls through to `gacResultsRecipient()`,
+    spuriously re-gating the status update behind a BRAND NEW
+    `gacPendingShareSummary` even though nothing was pending a moment before.
+    That resurrected Sam's "Share Results" button (the status payload has no
+    `resultsShared` field) and re-ran the whole check — re-sending the prompt
+    — every time it was tapped, explaining "had to tap several times" and
+    (when the timing happened to land differently) "never appeared." Fixed
+    with `forceEveryone:true` on both broadcasts. Separately: the generic
+    "waiting on a decision from Jack Frost…" bystander note now never shows
+    on Sam's OWN screen when Sam is the one actually deciding (stripped from
+    Sam's own `appendResultLines` call only — bystanders still see it).
+  - **Stale in/out roster after a rule-break elimination (BLOCKER)**:
+    `gacApplyBrokenRule` already streamed a fresh `samDayControls` payload to
+    Sam's phone on every elimination path, but the visible in/out list read
+    from the separate `samDayResults` payload, which only updates on a real
+    night/vote result. Now prefers `samDayControls.living`/`.out` (added
+    `.out` capture there, which was sent but never captured).
+  - **Host tracker had no self-eliminate button**: it existed but was wired
+    up inside `gacShowTrackHostCard()`, which hides for reasons that have
+    nothing to do with whether the host can self-report (physical deal, a
+    non-host Sam running, etc.). Moved to its own element + new
+    `gacUpdateHostSelfElim()`, called everywhere `gacUpdateScroogeButton()`
+    is for lockstep.
+  - **Host card-check screen showed phone-only UI in Sam-inputs mode**:
+    `gacRenderLoveRevealStatus()` never checked for a non-host Sam before
+    showing the confirm-count + hold-to-view control — now shows the same
+    blind-host treatment regular decisions already get.
+  - **Krampus's note rendered twice**: the note render added last round
+    (for Mrs. Claus's self-save explanation) duplicated a copy that already
+    existed inside `addConfirm()`, predating that round. Removed the
+    duplicate.
+  - **Spoken vs. narrator-only now visually distinct**: lines that ARE read
+    aloud keep the decorative font; every narrator-only line (a decision's
+    label — never spoken, since it's dynamic; Krampus's procedural note; the
+    physical-deal/spent-power explanations; the blind-host wait note) now
+    renders in one shared plain/muted style — `.gacNarratorOnly` (host),
+    `.mpNarratorOnly` (phone). Informational narrator-only content (Mrs.
+    Claus's self-save explanation) moved ABOVE the choices via a new
+    `.gacDecInfo`/`p.info` slot; purely procedural content (Krampus's
+    tap-shoulder note) stays BELOW, where it already lived.
+  - **Host day-results renderer unification** (TODO items 4/5, proposed
+    2026-09-23, built now): `appendResultLines` moved to module scope in
+    `multiplayer-ui.js` and exported (now takes `viewerName`/`buildCoinFlip`
+    as explicit params instead of reading `myName`/`mpBuildCoinFlip` from a
+    player-client closure the host doesn't have). `gacRenderTrackResult`/
+    `gacShowWinIfAny` now build a small adapter payload and call the shared
+    renderer instead of hand-building HTML — fixes the doubled "waiting to
+    be revealed" message (both functions had their own independent
+    blind-host check; `gacRenderTrackerResultArea` now recognizes the
+    game-ending gate and defers to `gacShowWinIfAny`'s copy), the emoji
+    rendering (host text now goes through the exact same code/classes as
+    the player's, so it can't drift), and the uncentered Results header.
+    Sam Settings and the roster tap-to-toggle are untouched, separate DOM
+    sections. CLAUDE.md's "no green boxes" rule updated to carve out
+    `.mpPersonalWin.win`/`.lose` — Scott confirmed the player screen (which
+    already used that green/red) is the standard, not the old rule.
+  - **Quitting mid-game didn't offer to re-pick Sam**: the tracker's ✕ hid
+    the tracker but never set `gacGameCompleted`, which is what gates
+    `gacOpenSetup()`'s "re-pick Sam from scratch" reset — a normal quit
+    silently reused the previous game's Sam until a second quit happened to
+    clear it some other way. Fixed by setting the flag on quit too.
+  - **Sam Settings formatting gap**: ported the host screen's explanatory
+    hint text (under pace/narration/input) to Sam's phone, streamed over in
+    the existing settings payload rather than re-typed as a second copy.
+    **Not fully resolved** — see open item below.
+  - **Scrooge Yes/No popup + host vote Sam-exclusion** — see Open items 6/7,
+    now marked done.
+  - Verified throughout: syntax + module + div-balance checks at every
+    commit checkpoint (not just the end), `node test/gac-sim/run.mjs` (0
+    violations — no `gac-engine.js` changes this round).
+  - **Regenerated `GAC_Manual.pdf`** via `build_manual.py` — the script
+    already had the correct Grinch-win wording from an earlier session, it
+    had just never actually been run against the PDF. Verified via
+    `pdftotext` that the new wording is in all three spots.
+  - **Left untouched, as instructed**: Bad Santa elimination audio
+    (`Audio/GAC_Narration/gac_badsanta_eliminated.mp3`) — still waiting on
+    Scott's verbatim wording.
+
 ## Open items
+
+0. **[investigated 2026-10-03, unresolved]** Host-as-Sam: Scott reported
+   having to "confirm the players again after Sam Settings," which doesn't
+   happen when a separate Sam controls. Traced both paths to the SAME
+   `gacContinueBeginAfterSam()` call (phone submit via the `gac_sam_setup`
+   handler, and the host's own `gacRenderHostAssign()` "Begin Night 1"
+   button both call it directly) — found no duplicate/redundant
+   confirmation step in the code. The likely explanation: in host-as-Sam
+   mode the HOST does the card-assignment step itself (`gacShowHostAssign`)
+   since there's no separate device to delegate it to, whereas with a
+   separate Sam that step happens on Sam's phone, out of the host's sight —
+   so what Scott's seeing may just be that assignment step itself, not an
+   extra one. Need Scott to say exactly which screen/dialog felt redundant
+   before touching anything — didn't want to guess and risk disrupting a
+   flow that's actually correct.
 
 1. **[done 2026-09-20]** Host screen flipped to the setup/character screen
    during the Bad Santa night-start prompt. Root cause: the four callers
@@ -315,18 +414,16 @@ don't just delete them (keeps history of what was fixed and why).
        pattern has bitten this project already (Scrooge button, the day-
        results centering, now this). Scott asked to see the approach before
        it's built — this is that proposal, not yet implemented.
-6. Scrooge confirmation: change the button-relabel "tap to confirm" flow
-   into a Yes/No popup. Apply to BOTH the host tracker's Scrooge button and
-   Sam's-phone Scrooge button, reading from the same shared `GAC_SCROOGE_SPEC`
-   so the two can't drift from each other.
-7. **[bug, found 2026-09-22, not fixed]** The host's own `#gacStartVote`
-   candidate list (`index.html`, `startHostVoting({... candidates:
-   gacGame.players.filter(p => p.alive).map(...) })`) doesn't exclude Sam —
-   CLAUDE.md is explicit that Sam is never a vote candidate. The Sam-driven
-   `"startVote"` handler (`onGacSamDay`) builds its own candidate list
-   correctly (`p.alive && p.roleId !== "Sam"`). The host's own version is
-   the one that's wrong. Confirmed by reading both side by side; not fixed
-   this pass — logged separately per Scott's instruction.
+6. **[done 2026-10-03]** Scrooge confirmation: replaced the button-relabel
+   "tap to confirm" flow with a Yes/No popup on BOTH the host tracker's
+   Scrooge button (`themedConfirm`) and Sam's-phone floating panel (a
+   matching inline Yes/No pair — the phone has no `themedConfirm` of its
+   own), both reading `GAC_SCROOGE_SPEC.confirmText` so the wording can't
+   drift between them.
+7. **[done 2026-10-03]** The host's own `#gacStartVote` candidate list
+   didn't exclude Sam (bug, found 2026-09-22) — now filters
+   `p.roleId !== "Sam"`, matching the Sam-driven `"startVote"` handler's
+   own (already-correct) candidate list.
 8. **[HELD — its own project, not scoped yet]** Reword "killing" to
    "robbing their house" game-wide: Belsnickel, Grinches, Krampus, Mrs.
    Claus's save, Jack Frost, manual host adjustments, spoken narration, the
