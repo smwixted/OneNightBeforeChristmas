@@ -84,6 +84,12 @@ export function ensureStyles() {
   .mpSub{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:17px;opacity:.9;margin:4px 0 16px}
   .mpGacNarr{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:18px;line-height:1.4;
     text-align:center;color:#eaf6ff;margin:8px 0 12px;text-shadow:0 1px 5px rgba(0,0,0,.6)}
+  /* Narrator-only text (never read aloud) — plain and muted, distinct at a
+     glance from .mpGacNarr's decorative font used for lines that ARE spoken.
+     Matches the host tracker's equivalent (.gacDecLabel/.gacDecNote/.gacDecInfo
+     in index.html) so both surfaces read the same way. */
+  .mpNarratorOnly{font-family:"Trebuchet MS",Arial,sans-serif !important;color:#cfe0ea;
+    font-size:14px;opacity:.85;text-align:center;margin:4px 0 10px}
   .mpOnceBadge{display:inline-block;font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:13px;
     background:#ffd24d;color:#0f2c3d;border-radius:20px;padding:4px 12px;margin:4px 0 8px}
   .mpPeekCount{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;text-align:center;font-size:15px;
@@ -802,11 +808,18 @@ export function startPlayerClient(code) {
     if (p.once) wrap.append(el("div", { className: "mpOnceBadge", textContent: "⏱️ once per game" }));
     if (p.img) wrap.append(el("img", { className:"gacSamNarrPortrait", src: p.img, style:"max-height:26vh;margin:6px auto 10px" }));
     if (p.narr) wrap.append(el("div", { className: "mpGacNarr", innerHTML: p.narr }));
-    if (p.label) wrap.append(el("div", { className: "mpSub", innerHTML: p.label }));
-    // Explains a disabled option (e.g. Mrs. Claus can't save herself) or gives
-    // extra context (Krampus's tap-your-shoulder note) — same info the host's
-    // own inline screen already shows next to its version of this decision.
-    if (p.note) wrap.append(el("div", { className: "mpSub", style:"opacity:.85", innerHTML: p.note }));
+    // The label is NEVER spoken (it's dynamic — a victim's name, or a
+    // tracking question with no audio of its own) — narrator-only, plain.
+    if (p.label) wrap.append(el("div", { className: "mpNarratorOnly", innerHTML: p.label }));
+    // p.info: informational narrator-only context beyond the label (e.g. "Mrs.
+    // Claus can't save herself") — ABOVE the choices, same reasoning as the
+    // label itself: it's part of what the decision IS, not what happens
+    // after it. Distinct from p.note (procedural, e.g. Krampus's "you will
+    // tap their shoulder") which stays BELOW, rendered inside addConfirm() —
+    // added there well before this function existed. Do NOT also render
+    // p.note here: that's exactly the duplicate Scott caught (a note showing
+    // once above AND once below the Yes/No buttons).
+    if (p.info) wrap.append(el("div", { className: "mpNarratorOnly", innerHTML: p.info }));
 
     const chosen = { v: (p.kind === "twopick") ? ["",""] : "" };
 
@@ -869,8 +882,12 @@ export function startPlayerClient(code) {
     btn.classList.add("sel");
   }
   function addConfirm(fn){
+    // p.note: procedural narrator-only context (e.g. Krampus's "you will tap
+    // their shoulder") — BELOW the choices, since it's about what happens
+    // AFTER deciding, not what the decision is about. See the p.info comment
+    // in renderGacPrompt for the above/below split.
     if (gacPromptState && gacPromptState.note){
-      wrap.append(el("div", { className: "mpSub", style:"opacity:.8;margin-top:8px;font-size:13px", textContent: gacPromptState.note }));
+      wrap.append(el("div", { className: "mpNarratorOnly", textContent: gacPromptState.note }));
     }
     const c = el("button", { className: "mpBtn gacConfirm", textContent: "Confirm ▶" });
     c.onclick = () => {
