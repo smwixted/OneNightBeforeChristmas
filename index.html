@@ -4590,6 +4590,18 @@ function gacRenderLoveRevealStatus(){
     box.className = "gacLoveStatus";
     gacNarrLine.insertAdjacentElement("afterend", box);
   }
+  // A non-host Sam is running the night (Sam-inputs mode): gacStartCardCheck/
+  // gacStartLoveReveal's own liveReveal check is false in this mode, so no
+  // player phone (including the host's "card") ever gets pushed anything for
+  // this beat — the "N/T confirmed" count would sit frozen at 0 forever, and
+  // the host's own hold-to-view/confirm control doesn't belong either, since
+  // Sam runs this beat with the table out loud, same as every other beat in
+  // this mode. Same blind-host treatment regular decisions already get (see
+  // gacHostMaySeeChoice / gacRenderInlineDecision's blind-wait box).
+  if ((typeof gacSamOnPhone === "function") && gacSamOnPhone()){
+    box.innerHTML = `<span class="gacNarratorOnly">🌙 Sam is running this with the table.</span>`;
+    return;
+  }
   const all = n >= t && t > 0;
   const isCardCheck = !!gacLoveState.cardCheck;
   const icon = isCardCheck ? "🎴" : "💘";
