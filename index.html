@@ -6049,10 +6049,18 @@ function gacCheckJackFrostRevenge(){
   const living = gacGame.players.filter(p => p.alive && p.roleId !== "Sam");
   if (!living.length){ frost.frostResolved = true; return; }
   // Block the vote until Jack Frost's revenge is chosen, and tell every phone
-  // we're waiting on that decision.
-  gacFrostPending = true;
-  gacUpdateTrackControls();
-  try { gacBroadcastDaySummary(null, { frostPending: frost.name }); } catch(_){}
+  // we're waiting on that decision. forceEveryone:true — this is a STATUS
+  // note, not fresh results, so it must never go through the overnight
+  // recipient-gating logic. It did once: a null-report call with no
+  // afterVote/forceAll falls through to gacResultsRecipient(), which
+  // RE-DERIVES a recipient from scratch — re-gating this status update
+  // behind a brand-new gacPendingShareSummary even though nothing was
+  // actually pending a moment ago (Sam had just shared). That spuriously
+  // resurrected Sam's own "Share Results" button (its visibility has no
+  // resultsShared field on this frostPending-only payload) and caused
+  // gacCheckJackFrostRevenge to re-run — and re-send the prompt — every time
+  // Scott tapped it, which is why repeated taps "eventually" worked.
+  try { gacBroadcastDaySummary(null, { frostPending: frost.name, forceEveryone:true }); } catch(_){}
 
   // Commit the choice (shared by the phone reply and the host's tracker pick).
   const resolveFrost = (targetId, wrapEl) => {
@@ -6068,9 +6076,12 @@ function gacCheckJackFrostRevenge(){
     gacShowWinIfAny({ afterVote: gacVoteJustHeld });
     gacUpdateTrackControls();
     try { gacUpdateScroogeButton(); } catch(_){}   // Frost's target could be Scrooge
+    try { gacUpdateHostSelfElim(); } catch(_){}    // Frost's target could be the host
     try { gacStreamDayToSam(); } catch(_){}
-    // Tell EVERYONE who Jack Frost took down.
-    gacBroadcastDaySummary(null, { frostTookDown: pl.name });
+    // Tell EVERYONE who Jack Frost took down. forceEveryone:true for the same
+    // reason as the frostPending broadcast above — this is a status
+    // announcement, not fresh results, and must never get re-gated.
+    gacBroadcastDaySummary(null, { frostTookDown: pl.name, forceEveryone:true });
     if (wrapEl) wrapEl.innerHTML = `❄️ Jack Frost took <b>${pl.name}</b> down with him.`;
   };
 

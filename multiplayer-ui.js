@@ -1149,7 +1149,7 @@ export function startPlayerClient(code) {
     hideNudge();
     samRunningBeat = false;   // night's over — allow waits again
     samSetupState = null;
-    samDayControls = { living:(p.living||[]).slice(), hasCharlie:!!p.hasCharlie,
+    samDayControls = { living:(p.living||[]).slice(), out:(p.out||[]).slice(), hasCharlie:!!p.hasCharlie,
                        voteTimerMs: p.voteTimerMs||0, voteHeld:!!p.voteHeld, night:p.night||"",
                        mobileVoting: !!p.mobileVoting,
                        logPlayers: (p.samLogPlayers||[]).slice(),
@@ -1176,7 +1176,16 @@ export function startPlayerClient(code) {
     // identical. Sam narrated the night, so they always see them (ungated).
     if (s){
       const resultsBox = el("div");
-      appendResultLines(resultsBox, s);
+      // "Waiting on a decision from Jack Frost…" is a BYSTANDER note — it's
+      // for players who aren't the one deciding. Sam is never a bystander
+      // here: either Sam IS the decider (Sam-inputs mode — they get the real
+      // frostRevenge prompt directly, and this note would just compete with
+      // or cover it) or Frost has his own phone and Sam already knows, as
+      // the moderator, that the table is waiting. Strip it from Sam's own
+      // copy only — appendResultLines is shared with every other player's
+      // render, where this note is exactly right.
+      const sForAppend = s.frostPending ? Object.assign({}, s, { frostPending: null }) : s;
+      appendResultLines(resultsBox, sForAppend, myName, mpBuildCoinFlip);
       wrap.append(resultsBox);
       // Share with everyone (optional): for overnight results (pre-vote) OR at
       // game end (the narrator reveals the final win/loss to the table).
@@ -1200,12 +1209,23 @@ export function startPlayerClient(code) {
         if (!r) return n;
         return `${n} — ${r}${convByName[n] ? " → 😈 Grinch" : ""}`;
       };
+      // Prefer samDayControls' living/out over the results payload's — every
+      // elimination path (vote, roster correction, Jack Frost, a rule-break
+      // self-elim or the Scrooge button) calls gacStreamDayToSam() to refresh
+      // samDayControls in lockstep, but deliberately does NOT re-broadcast a
+      // fresh "results" payload for that (it would wrongly imply a new
+      // overnight reveal, with its own share button and re-gating risk — see
+      // gacApplyBrokenRule). samDayResults.living/.out would otherwise sit
+      // stale until the next REAL night/vote result, showing someone as
+      // still in after they'd already been eliminated mid-day.
+      const curLiving = (samDayControls && samDayControls.living) || s.living || [];
+      const curOut = (samDayControls && samDayControls.out) || s.out || [];
       const box = el("div", { className:"mpSummaryBox" });
-      box.append(el("div", { className:"mpSummaryHdr", textContent:`Still in (${(s.living||[]).length})` }));
-      (s.living||[]).forEach(n => box.append(el("div", { className:"mpSummaryIn", textContent:`✅ ${withRole(n)}` })));
-      if ((s.out||[]).length){
-        box.append(el("div", { className:"mpSummaryHdr", textContent:`Out (${s.out.length})` }));
-        (s.out||[]).forEach(n => box.append(el("div", { className:"mpSummaryOut", textContent:`❌ ${withRole(n)}` })));
+      box.append(el("div", { className:"mpSummaryHdr", textContent:`Still in (${curLiving.length})` }));
+      curLiving.forEach(n => box.append(el("div", { className:"mpSummaryIn", textContent:`✅ ${withRole(n)}` })));
+      if (curOut.length){
+        box.append(el("div", { className:"mpSummaryHdr", textContent:`Out (${curOut.length})` }));
+        curOut.forEach(n => box.append(el("div", { className:"mpSummaryOut", textContent:`❌ ${withRole(n)}` })));
       }
       wrap.append(box);
     }
