@@ -4344,6 +4344,11 @@ function gacSendSamSettingsToSam(samName){
     virtual: !!settings.gacVirtualDeal,
     choices: !!settings.gacPlayerChoices,
     allJoined: gacAllPlayersOnDevices(),
+    // Same explanatory hints the host sees under each option — streamed
+    // over rather than re-typed as a second copy on the phone, so the two
+    // screens can't drift apart in wording (Scott flagged them as
+    // "formatted differently"; this is the content half of closing that gap).
+    hints: { pace: GAC_PACE_HINTS, narr: GAC_NARR_AUDIO_HINTS, input: GAC_INPUT_HINTS },
   };
   try { gacSendInfo(samName, payload); } catch(_){}
   gacSetupWarn.innerHTML = `<div class="gacSetOK">🌙 <b>${samName}</b> is choosing the night settings on their phone…</div>`;
@@ -6798,7 +6803,16 @@ document.getElementById("gacShareResults").onclick = () => {
   b.textContent = "✓ Results shared";
   b.disabled = true;
 };
-document.getElementById("gacTrackClose").onclick = () => { gacTracker.style.display = "none"; };
+document.getElementById("gacTrackClose").onclick = () => {
+  gacTracker.style.display = "none";   // reveals the character-select grid underneath
+  // This IS quitting the game, from setup's point of view — the same as a
+  // game actually finishing. Without this, gacOpenSetup()'s "re-pick Sam
+  // from scratch" reset (gated on gacGameCompleted) never ran, so the next
+  // "Set Up Players" silently reused this game's Sam with no "Who is Sam?"
+  // prompt — exactly the bug Scott hit, which only cleared on a SECOND quit
+  // (whatever path got gacGameCompleted set true some other way by then).
+  gacGameCompleted = true;
+};
 // Control visibility on the day tracker:
 //  - "Next Night" only appears AFTER a vote has been held this day.
 //  - "Share Results" only appears once the game is over.

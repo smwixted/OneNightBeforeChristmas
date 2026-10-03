@@ -1159,6 +1159,7 @@ export function startPlayerClient(code) {
       virtual: !!p.virtual,
       choices: !!p.choices,
       allJoined: !!p.allJoined,
+      hints: p.hints || {},   // same explanatory text the host sees — see gacSendSamSettingsToSam
     };
     renderSamSettings();
   }
@@ -1178,6 +1179,8 @@ export function startPlayerClient(code) {
       paceWrap.append(b);
     });
     wrap.append(paceWrap);
+    wrap.append(el("div", { className:"mpNarratorOnly", style:"margin:4px 0 0",
+      textContent: (s.hints.pace || {})[s.pace] || "" }));
 
     // Narration audio.
     wrap.append(el("div", { className:"mpSummaryHdr", style:"margin-top:14px", textContent:"Narration Audio" }));
@@ -1188,6 +1191,8 @@ export function startPlayerClient(code) {
       narrWrap.append(b);
     });
     wrap.append(narrWrap);
+    wrap.append(el("div", { className:"mpNarratorOnly", style:"margin:4px 0 0",
+      textContent: (s.hints.narr || {})[s.narr] || "" }));
 
     // Input method (physical only).
     if (!s.virtual){
@@ -1199,6 +1204,8 @@ export function startPlayerClient(code) {
         inWrap.append(b);
       });
       wrap.append(inWrap);
+      wrap.append(el("div", { className:"mpNarratorOnly", style:"margin:4px 0 0",
+        textContent: (s.hints.input || {})[s.input] || "" }));
     }
 
     // Players make own choices (greyed unless all joined).
