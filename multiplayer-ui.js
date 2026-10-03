@@ -476,6 +476,65 @@ function renderResultsInto(wrap, r) {
 }
 
 // ============================================================
+// GAC day-results content — SHARED by player phones (gacDaySummary, inside
+// startPlayerClient below) and the host tracker (gacRenderTrackResult /
+// gacShowWinIfAny in index.html). Exported so both render identically —
+// before this, the host hand-built its own copy of this same content and
+// drifted from the players' version repeatedly (missing emoji-safe fonts, a
+// doubled "waiting to be revealed" message, uncentered text). `s` is the
+// day-summary-shaped payload both sides already build (win/deaths/swaps/
+// afterVote/frostPending/etc.) — see gacBroadcastDaySummary in index.html for
+// the host's shape. `viewerName` replaces reading `myName` from a closure,
+// since the host has no player-client connection of its own to read it from;
+// pass null/undefined for a pure-narrator host (no personal win/loss line
+// applies to a non-player anyway). `buildCoinFlip(winner, revealed)` is
+// optional — pass it only if the caller wants the coin-flip branch to render
+// something; the host builds a win-pending coin flip through its own
+// existing gacBuildCoinFlip elsewhere, so it omits this entirely.
+export function appendResultLines(wrap, s, viewerName, buildCoinFlip){
+  if (s.win && s.win !== "coinpending"){
+    // Sam is the moderator — no personal win/loss. Everyone else gets theirs.
+    const amSam = !!(s.samName && s.samName === viewerName);
+    const me = (s.players || []).find(p => p.name === viewerName);
+    if (!amSam && me && typeof me.won === "boolean"){
+      wrap.append(el("div", { className: me.won ? "mpPersonalWin win" : "mpPersonalWin lose",
+        innerHTML: me.won ? "🏆 You win!" : "💔 You lose" }));
+    }
+    const labels = { christmas:"🎄 Christmas team wins!", grinch:"😈 The Grinches win!", lovers:"💘 The lovers win!", draw:"☠️ Nobody survived — no winner." };
+    wrap.append(el("div", { className: "mpGacResult", innerHTML: `<b>${labels[s.win]||"Game over"}</b>` }));
+  }
+  if (s.swaps && s.swaps.length){
+    s.swaps.forEach(sw => wrap.append(el("div", { className:"mpSub", innerHTML:`🔄 <b>${sw.a}</b> and <b>${sw.b}</b> were swapped — switch seats!` })));
+  }
+  if (s.afterVote){
+    if (s.votedOut){
+      wrap.append(el("div", { className:"mpGacResult", innerHTML:`🗳️ <b>${s.votedOut}</b> was voted out.` }));
+    } else if (s.tieEliminated){
+      wrap.append(el("div", { className:"mpGacResult", innerHTML:`⚖️ Tie vote — <b>${s.tieEliminated}</b> was eliminated.` }));
+    } else {
+      wrap.append(el("div", { className:"mpSub", textContent:"🗳️ The vote ended with no elimination." }));
+    }
+    if (s.heartbreak && s.heartbreak.length){
+      wrap.append(el("div", { className:"mpGacResult",
+        innerHTML:`💔 <b>${s.heartbreak.join(", ")}</b> died of heartbreak.` }));
+    }
+  } else if (s.deaths && s.deaths.length){
+    wrap.append(el("div", { className:"mpGacResult", innerHTML:`🌙 Overnight: <b>${s.deaths.join(", ")}</b> ${s.deaths.length===1?"was":"were"} lost.` }));
+  } else if (!s.frostPending && !s.frostTookDown) {
+    wrap.append(el("div", { className:"mpSub", textContent:"🌙 A quiet night — everyone survived." }));
+  }
+  if (s.frostPending){
+    wrap.append(el("div", { className:"mpGacResult", innerHTML:`❄️ Waiting on a decision from <b>Jack Frost</b>…` }));
+  }
+  if (s.frostTookDown){
+    wrap.append(el("div", { className:"mpGacResult", innerHTML:`❄️ Jack Frost took <b>${s.frostTookDown}</b> down with him.` }));
+  }
+  if ((s.coinPending || s.coinRevealed) && typeof buildCoinFlip === "function"){
+    wrap.append(buildCoinFlip(s.coinFlip || null, !!s.coinRevealed));
+  }
+}
+
+// ============================================================
 // HOST VOTING — drives one round on the PERSISTENT session.
 // Uses the game's themed vote screen; overlays only a bottom strip.
 // hooks: { showThemedVote, hideThemedVote, setTimerText }
@@ -1579,7 +1638,7 @@ export function startPlayerClient(code) {
     const resultsBox = el("div");
     const renderResults = () => {
       resultsBox.innerHTML = "";
-      appendResultLines(resultsBox, s);
+      appendResultLines(resultsBox, s, myName, mpBuildCoinFlip);
     };
     if (!s.resultsHidden){
       renderResults();                       // everyone sees results (normal)
@@ -1670,48 +1729,10 @@ export function startPlayerClient(code) {
   }
   // Render the overnight result lines (win, swaps, vote/deaths, frost, coin) into
   // a container. Split out so it can be shown immediately or gated behind a reveal.
-  function appendResultLines(wrap, s){
-    if (s.win && s.win !== "coinpending"){
-      // Sam is the moderator — no personal win/loss. Everyone else gets theirs.
-      const amSam = !!(s.samName && s.samName === myName);
-      const me = (s.players || []).find(p => p.name === myName);
-      if (!amSam && me && typeof me.won === "boolean"){
-        wrap.append(el("div", { className: me.won ? "mpPersonalWin win" : "mpPersonalWin lose",
-          innerHTML: me.won ? "🏆 You win!" : "💔 You lose" }));
-      }
-      const labels = { christmas:"🎄 Christmas team wins!", grinch:"😈 The Grinches win!", lovers:"💘 The lovers win!", draw:"☠️ Nobody survived — no winner." };
-      wrap.append(el("div", { className: "mpGacResult", innerHTML: `<b>${labels[s.win]||"Game over"}</b>` }));
-    }
-    if (s.swaps && s.swaps.length){
-      s.swaps.forEach(sw => wrap.append(el("div", { className:"mpSub", innerHTML:`🔄 <b>${sw.a}</b> and <b>${sw.b}</b> were swapped — switch seats!` })));
-    }
-    if (s.afterVote){
-      if (s.votedOut){
-        wrap.append(el("div", { className:"mpGacResult", innerHTML:`🗳️ <b>${s.votedOut}</b> was voted out.` }));
-      } else if (s.tieEliminated){
-        wrap.append(el("div", { className:"mpGacResult", innerHTML:`⚖️ Tie vote — <b>${s.tieEliminated}</b> was eliminated.` }));
-      } else {
-        wrap.append(el("div", { className:"mpSub", textContent:"🗳️ The vote ended with no elimination." }));
-      }
-      if (s.heartbreak && s.heartbreak.length){
-        wrap.append(el("div", { className:"mpGacResult",
-          innerHTML:`💔 <b>${s.heartbreak.join(", ")}</b> died of heartbreak.` }));
-      }
-    } else if (s.deaths && s.deaths.length){
-      wrap.append(el("div", { className:"mpGacResult", innerHTML:`🌙 Overnight: <b>${s.deaths.join(", ")}</b> ${s.deaths.length===1?"was":"were"} lost.` }));
-    } else if (!s.frostPending && !s.frostTookDown) {
-      wrap.append(el("div", { className:"mpSub", textContent:"🌙 A quiet night — everyone survived." }));
-    }
-    if (s.frostPending){
-      wrap.append(el("div", { className:"mpGacResult", innerHTML:`❄️ Waiting on a decision from <b>Jack Frost</b>…` }));
-    }
-    if (s.frostTookDown){
-      wrap.append(el("div", { className:"mpGacResult", innerHTML:`❄️ Jack Frost took <b>${s.frostTookDown}</b> down with him.` }));
-    }
-    if (s.coinPending || s.coinRevealed){
-      wrap.append(mpBuildCoinFlip(s.coinFlip || null, !!s.coinRevealed));
-    }
-  }
+  // appendResultLines moved to module top level (below) so the HOST tracker
+  // (index.html) can import and call it too — see the top-level definition
+  // for why it takes viewerName/buildCoinFlip as explicit params instead of
+  // reading myName/mpBuildCoinFlip from this closure.
   // Fixed bottom-left Game Log button (created once, updated as state changes).
   // ---- Standing "eliminated" banner ----
   // Once this player is out, a banner stays pinned at the top of their screen for

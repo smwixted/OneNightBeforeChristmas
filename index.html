@@ -718,9 +718,12 @@
   @keyframes gacWinPulse{0%,100%{transform:scale(1)}50%{transform:scale(1.03)}}
   #gacSetupWarn, #gacTrackResult{max-width:680px;margin:10px auto;font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;
     font-size:15px;line-height:1.4}
-  /* #gacTrackResult only (not #gacSetupWarn, which stays left-aligned) —
-     matches .mpWrap's text-align:center on the player/Sam screens. */
-  #gacTrackResult{text-align:center}
+  /* #gacTrackResult/#gacTrackWin only (not #gacSetupWarn, which stays
+     left-aligned) — matches .mpWrap's text-align:center on the player/Sam
+     screens, which is what .mpGacResult/.mpPersonalWin rely on for their own
+     centering (neither sets text-align itself). #gacTrackWin needed this
+     explicitly — unlike #gacTrackResult, it had no base rule at all before. */
+  #gacTrackResult, #gacTrackWin{text-align:center;max-width:680px;margin:10px auto}
   #gacSetupWarn .warn, #gacTrackResult .warn{background:rgba(140,70,0,.55);border:1px solid #ffcc88;
     color:#ffe9c7;border-radius:10px;padding:12px 14px;margin-bottom:8px}
   #gacSetupWarn .warn.err{background:rgba(150,20,20,.6);border:1px solid #ff9a9a;color:#ffe1e1}
@@ -1348,8 +1351,8 @@ import { startHostVoting, startPlayerClient, joinCodeFromUrl, configured as mpCo
          startSession, endSession, getHostSession, broadcastRoles, openJoinPrompt, teardownHostVoteUI, renameHost, broadcastGameSwitch,
          gacSendPrompt, gacBroadcastWait, gacBroadcastWaitExcept, gacSendInfo, gacBroadcastClear, onGacChoice,
          gacSendCardPick, onGacCardPick, gacStartWheel, gacUpdateWheel, onGacWheelInput,
-         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles, gacBroadcastRuleBreakAnnouncement }
-  from "./multiplayer-ui.js?v=213";
+         gacSendNudge, onGacNudgeReply, onGacPeek, onGacAck, onGacSelfElim, onGacShareResults, onGacSamNav, onGacSamDay, gacBroadcastSummary, gacBroadcastPeekCount, gacBroadcastSleep, gacBroadcastLoveReveal, onGacLoveConfirm, gacMountHostCheat, ensureStyles as mpEnsureStyles, gacBroadcastRuleBreakAnnouncement, appendResultLines }
+  from "./multiplayer-ui.js?v=214";
 import { CHAR_REF, TOKEN_REF } from "./print-data.js?v=5";
 
 // ---------- PLAYER JOIN MODE ----------
@@ -5818,40 +5821,43 @@ function gacCaptureInlineDecision(key){ /* state captured live on click */ }
 // Build the tracker's result banner. Mirrors the players' phone summary exactly,
 // in the same order: swaps -> (vote result + heartbreak + coin flip) OR overnight
 // deaths -> Jack Frost. Called both after a night and after a vote.
+// Build the s-shaped payload appendResultLines (multiplayer-ui.js, shared
+// with players/Sam) expects, from the host's OWN local state. Deliberately
+// does NOT set `win` for gacRenderTrackResult's use (that banner is
+// gacShowWinIfAny's job, in its own #gacTrackWin area — the host's layout
+// splits "what happened" from "who won" into two boxes, unlike the player's
+// single combined screen, so this stays scoped to the former).
+function gacBuildHostResultsPayload(rep){
+  const payload = { frostPending: gacFrostPending ? true : null };
+  if (rep && rep.swaps && rep.swaps.length) payload.swaps = rep.swaps.map(s => ({ a:s.a, b:s.b }));
+  if (gacVoteJustHeld){
+    payload.afterVote = true;
+    payload.votedOut = gacLastVotedOut;
+    payload.tieEliminated = gacLastTieEliminated;
+    payload.heartbreak = gacLastHeartbreak;
+  } else if (rep){
+    payload.deaths = rep.deaths ? rep.deaths.map(d => d.name) : [];
+  }
+  return payload;
+}
+// Renders EXACTLY what the player/Sam screens render for the same content —
+// see appendResultLines (multiplayer-ui.js) — so this can't drift from them
+// again (missing emoji-safe font, wrong layout) the way the old hand-built
+// copy did. settings.mpHostName as viewerName so a host who's ALSO a player
+// would get a personal win/loss line from this if it ever carried `win`
+// (it doesn't — see gacBuildHostResultsPayload); null for a pure narrator.
 function gacRenderTrackResult(report){
   if (report !== undefined) gacLastNightReport = report;
   const rep = gacLastNightReport;
-  let html = "";
+  gacTrackResult.innerHTML = "";
   if (gacNightInterrupted){
-    html += `<div class="gacResultLine">⏸️ Night ${gacNight} was exited. Tap <b>Start Night ${gacNight}</b> below to run it again.</div>`;
+    const d = document.createElement("div");
+    d.className = "gacResultLine";
+    d.innerHTML = `⏸️ Night ${gacNight} was exited. Tap <b>Start Night ${gacNight}</b> below to run it again.`;
+    gacTrackResult.appendChild(d);
   }
-  if (rep && rep.swaps && rep.swaps.length){
-    rep.swaps.forEach(s => {
-      html += `<div class="gacResultLine">🔄 Buddy swapped <b>${s.a}</b> and <b>${s.b}</b> — switch seats!</div>`;
-    });
-  }
-  if (gacVoteJustHeld){
-    if (gacLastVotedOut){
-      html += `<div class="gacResultLine">🗳️ <b>${gacLastVotedOut}</b> was voted out.</div>`;
-    } else if (gacLastTieEliminated){
-      html += `<div class="gacResultLine">⚖️ Tie vote — <b>${gacLastTieEliminated}</b> was eliminated.</div>`;
-    } else {
-      html += `<div class="gacResultSub">🗳️ The vote ended with no elimination.</div>`;
-    }
-    // A lover dragged down with them (Cupid's pair share a fate) — the phones
-    // show this, so the host must too.
-    if (gacLastHeartbreak && gacLastHeartbreak.length){
-      html += `<div class="gacResultLine">💔 <b>${gacLastHeartbreak.join(", ")}</b> died of heartbreak.</div>`;
-    }
-  } else if (rep){
-    if (rep.deaths && rep.deaths.length){
-      const names = rep.deaths.map(d => d.name).join(", ");
-      html += `<div class="gacResultLine">🌙 Overnight: <b>${names}</b> ${rep.deaths.length===1?"was":"were"} lost.</div>`;
-    } else if (!gacFrostPending){
-      html += `<div class="gacResultSub">🌙 A quiet night — everyone survived.</div>`;
-    }
-  }
-  gacTrackResult.innerHTML = html;
+  appendResultLines(gacTrackResult, gacBuildHostResultsPayload(rep),
+    settings.mpHostPlayer ? settings.mpHostName : null);
 }
 
 // ---- Day tracker ----
@@ -6076,6 +6082,17 @@ function gacRenderTrackerResultArea(report){
                     gacPendingShareSummary._recipient !== hostName;
   if (hostBlind){
     const el = document.getElementById("gacTrackResult");
+    // If this gate is the GAME-ENDING reveal (gacBroadcastDaySummary already
+    // resolved payload.win truthy when it gated this), gacShowWinIfAny shows
+    // its OWN "waiting to be revealed" message in #gacTrackWin for that —
+    // showing an identical second copy here is exactly the double-render
+    // Scott caught (plain text in #gacTrackResult AND boxed in #gacTrackWin
+    // at once). Clear this box instead and let that be the one copy.
+    if (gacPendingShareSummary.win){
+      if (el) el.innerHTML = "";
+      if (report !== undefined) gacLastNightReport = report;
+      return;
+    }
     if (el){
       const who = gacPendingShareSummary._recipient || "another player";
       el.innerHTML = `<div class="gacResultSub">🌙 The night's results are with <b>${who}</b>.<br>Waiting for them to be revealed…</div>`;
@@ -6727,11 +6744,10 @@ function gacShowWinIfAny(opts){
       gacUpdateTrackControls();
       return w;
     }
-    let html = "";
+    winEl.innerHTML = "";
     // A draw is waiting on the coin flip — show the coin + Flip button, no winner
     // decided yet. Both faces are labeled so the table sees what each side means.
     if (w === "coinpending"){
-      winEl.innerHTML = "";
       const coinEl = gacBuildCoinFlip(null, false, () => {
         // Host taps Flip: decide the winner NOW. This must return the winner even
         // if the broadcast below fails — otherwise the animation would fall back to
@@ -6750,25 +6766,22 @@ function gacShowWinIfAny(opts){
     if (w){
       // Coin flip already revealed — show the settled coin above the result.
       if (raw === "draw" && gacGame.coinFlip && gacGame.coinFlip.revealed){
-        html += `<div id="gacCoinSettleSlot"></div>`;
+        winEl.appendChild(document.createElement("div")).id = "gacCoinSettleSlot";
       }
-      // Use the SAME styling players see (mpPersonalWin + mpGacResult) so the host
-      // end-game screen matches exactly — neutral background, same font/wording.
-      const mpLabels = { christmas:"🎄 Christmas team wins!", grinch:"😈 The Grinches win!", lovers:"💘 The lovers win!", draw:"☠️ Nobody survived — no winner." };
-      if (settings.mpHostPlayer && settings.mpHostName){
-        const me = gacGame.players.find(p => p.name === settings.mpHostName);
-        if (me){
-          const won = gacPlayerWon(me, w, gacGame.players);
-          html += `<div class="mpPersonalWin ${won ? "win" : "lose"}">${won ? "🏆 You win!" : "💔 You lose"}</div>`;
-        }
+      // Renders EXACTLY what players see for this (appendResultLines,
+      // multiplayer-ui.js) — "You Win"/"You Lose" + the team-wins line — so
+      // this can't drift from their look again. Scoped to just win/players:
+      // #gacTrackResult (gacRenderTrackResult, above) already shows the vote
+      // outcome in its own box, so repeating it here would be the exact kind
+      // of double-render Scott caught elsewhere.
+      const payload = { win: w,
+        players: gacGame.players.filter(p => p.roleId !== "Sam").map(p => ({ name:p.name, won: gacPlayerWon(p, w, gacGame.players) })) };
+      appendResultLines(winEl, payload, settings.mpHostPlayer ? settings.mpHostName : null);
+      // Drop the settled coin into its slot (appendResultLines only appends).
+      if (raw === "draw" && gacGame.coinFlip && gacGame.coinFlip.revealed){
+        const slot = document.getElementById("gacCoinSettleSlot");
+        if (slot) slot.appendChild(gacBuildCoinFlip(gacGame.coinFlip.winner, true));
       }
-      html += `<div class="mpGacResult"><b>${mpLabels[w] || "Game over"}</b></div>`;
-    }
-    winEl.innerHTML = html;
-    // Drop the settled coin into its slot (innerHTML can't hold a built node).
-    if (w && raw === "draw" && gacGame.coinFlip && gacGame.coinFlip.revealed){
-      const slot = document.getElementById("gacCoinSettleSlot");
-      if (slot) slot.appendChild(gacBuildCoinFlip(gacGame.coinFlip.winner, true));
     }
   }
   gacUpdateTrackControls();
