@@ -35,8 +35,13 @@ https://smwixted.github.io/OneNightBeforeChristmas/). Deploy is via GitHub Deskt
 4. **Green checks ≠ correct behavior.** Syntax/simulation checks catch logic and
    build bugs. They CANNOT catch real-device, real-browser, real-audio, or live
    multiplayer bugs. Those are Scott's manual test. Be explicit about which is which.
-5. **No green result/win boxes.** Scott dislikes them — use neutral dark
-   `rgba(...)` backgrounds for result/win banners.
+5. **Personal win/loss banners (`.mpPersonalWin.win`/`.lose`) ARE green/red —
+   that's the standard, set by the player screen.** (Revised 2026-10-03: the
+   old blanket "no green" rule conflicted with the player screen itself,
+   which Scott confirmed is the look the HOST should match, not the other
+   way around — don't "fix" the host back toward green-free.) Everything
+   ELSE result/status-shaped — the "waiting to be revealed" note, vote-tally
+   displays, etc. — stays neutral dark `rgba(...)`, no green or red.
 
 ## File map
 
