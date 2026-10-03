@@ -1200,8 +1200,14 @@
           </div>
         </div>
         <div id="gacTrackHostDesc"></div>
-        <button id="gacTrackSelfElim" type="button" style="display:none">💀 I broke my rule — eliminate me</button>
       </div>
+      <!-- Independent of gacTrackHostCard above: that box only shows (and thus
+           used to gate this button) when the app owns the host's card
+           (virtual deal, host playing, no separate Sam) — but a host playing
+           a PHYSICAL deal, or playing alongside a separate Sam, can still
+           hold Bad Santa/Scrooge and needs this regardless. Gated/wired by
+           gacUpdateHostSelfElim() only. -->
+      <button id="gacTrackSelfElim" type="button" style="display:none;margin:0 0 10px">💀 I broke my rule — eliminate me</button>
       <div id="gacTrackScroogeBtn" style="display:none;margin:0 0 10px"></div>
       <div id="gacTrackListRow">
         <div id="gacTrackList"></div>
@@ -1625,6 +1631,7 @@ function gacRevealPendingResults(){
       gacRenderTrackList();
       gacUpdateHostDeadBanner();   // host's own elimination can surface now
       gacUpdateScroogeButton();
+      gacUpdateHostSelfElim();
     }
   } catch(_){}
   // The table now actually knows tonight's deaths — if Jack Frost died and his
@@ -2884,6 +2891,7 @@ function gacApplyBrokenRule(name, opts){
   if (gacTracker && gacTracker.style.display !== "none"){
     gacRenderTrackList(); gacShowWinIfAny({ afterVote: gacVoteJustHeld });
     try { gacUpdateScroogeButton(); } catch(_){}   // hides promptly if Scrooge was the one eliminated
+    try { gacUpdateHostSelfElim(); } catch(_){}    // hides promptly if the HOST was the one eliminated
   }
   try { gacStreamDayToSam(); } catch(_){}   // keep a non-host Sam's copy in lockstep too
   // Tell the eliminated player directly and immediately, either way — NEITHER
@@ -2955,6 +2963,7 @@ function gacRegisterAckHandler(){
             gacShowWinIfAny({ afterVote: gacVoteJustHeld });
             gacRenderTrackList();
             gacUpdateScroogeButton();   // hides now that gacResultsShared is true
+            gacUpdateHostSelfElim();    // same — hides once results are shared
           }
         } catch(_){}
         return;
@@ -3808,29 +3817,37 @@ function gacShowTrackHostCard(){
   box.style.display = "block";
   document.getElementById("gacTrackHostBack").style.display = "flex";
   document.getElementById("gacTrackHostFace").style.display = "none";
-  // Self-eliminate button — shown whenever a gimmick role (Bad Santa / Scrooge)
-  // is in play, on EVERY living player's screen (so it doesn't reveal who holds
-  // it), including the host's tracker. Strong tap-to-confirm guards misclicks.
+}
+// Self-eliminate button — shown whenever a gimmick role (Bad Santa / Scrooge)
+// is in play, on EVERY living player's screen (so it doesn't reveal who holds
+// it), including the host's tracker. Deliberately independent of
+// gacShowTrackHostCard()'s many early returns (physical deal, a non-host Sam
+// running, etc.) — those are about whether the app can SHOW the host's card,
+// which has nothing to do with whether the host themselves can self-report.
+// A host playing a physical deal, or alongside a separate Sam, still needs
+// this. Strong tap-to-confirm guards misclicks.
+function gacUpdateHostSelfElim(){
   const seBtn = document.getElementById("gacTrackSelfElim");
-  if (seBtn){
-    const gimmickInPlay = gacGame.players.some(p => (p.roleId === "BadSanta" || p.roleId === "Scrooge"));
-    const hostAlive = me && me.alive;
-    if (gimmickInPlay && hostAlive && !gacResultsShared){
-      seBtn.style.display = "block";
-      seBtn.textContent = "💀 I broke my rule — eliminate me";
-      delete seBtn.dataset.confirm;
-      seBtn.onclick = () => {
-        if (seBtn.dataset.confirm === "1"){
-          gacApplyBrokenRule(me.name);
-          gacShowTrackHostCard();   // refresh (button hides now that host is out)
-        } else {
-          seBtn.dataset.confirm = "1";
-          seBtn.textContent = "Tap again to confirm — this eliminates you";
-        }
-      };
-    } else {
-      seBtn.style.display = "none";
-    }
+  if (!seBtn) return;
+  if (!settings.mpHostPlayer || !settings.mpHostName || !gacGame){ seBtn.style.display = "none"; return; }
+  const me = gacGame.players.find(p => p.name === settings.mpHostName);
+  const gimmickInPlay = gacGame.players.some(p => (p.roleId === "BadSanta" || p.roleId === "Scrooge"));
+  const hostAlive = !!(me && me.alive && me.roleId !== "Sam");
+  if (gimmickInPlay && hostAlive && !gacResultsShared){
+    seBtn.style.display = "block";
+    seBtn.textContent = "💀 I broke my rule — eliminate me";
+    delete seBtn.dataset.confirm;
+    seBtn.onclick = () => {
+      if (seBtn.dataset.confirm === "1"){
+        gacApplyBrokenRule(me.name);
+        gacUpdateHostSelfElim();   // refresh (button hides now that host is out)
+      } else {
+        seBtn.dataset.confirm = "1";
+        seBtn.textContent = "Tap again to confirm — this eliminates you";
+      }
+    };
+  } else {
+    seBtn.style.display = "none";
   }
 }
 (function gacWireTrackHostCardHold(){
@@ -6002,6 +6019,7 @@ function gacOpenTracker(report){
   gacUpdateHostDeadBanner();
   gacUpdateHostShareResults();   // host-held night results get a share button
   gacUpdateScroogeButton();      // "Eliminate Ebenezer Scrooge" narrator control
+  gacUpdateHostSelfElim();       // "I broke my rule" narrator control
   gacApplyUntrackedDayLayout();  // moon-button day screen when not tracking
   gacShowWinIfAny({ afterVote: gacVoteJustHeld });   // surface a win if the game ended
   gacUpdateTrackControls();
@@ -6471,6 +6489,7 @@ function gacRenderTrackList(){
     gacRenderTrackList();
     gacShowWinIfAny({ afterVote: gacVoteJustHeld });
     try { gacUpdateScroogeButton(); } catch(_){}   // a manual roster correction can toggle Scrooge too
+    try { gacUpdateHostSelfElim(); } catch(_){}    // ...or the host
     try { gacStreamDayToSam(); } catch(_){}
     gacBroadcastDaySummary(null, gacVoteJustHeld ? { afterVote:true, votedOut: gacLastVotedOut } : null);
   };
@@ -6847,6 +6866,7 @@ function gacApplyVoteResult(result){
   gacShowWinIfAny({ afterVote: true });
   gacCharlieDied = null;
   try { gacUpdateScroogeButton(); } catch(_){}   // a vote (or the Charlie Brown tie) can eliminate Scrooge too
+  try { gacUpdateHostSelfElim(); } catch(_){}    // ...or the host
   try { gacStreamDayToSam(); } catch(_){}
   gacUpdateTrackControls();
   // Same gating hazard as the night-end path (see gacOpenTracker/
