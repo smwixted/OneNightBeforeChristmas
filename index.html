@@ -5949,7 +5949,11 @@ const GAC_SCROOGE_SPEC = {
   roleId: "Scrooge",
   label: "🙅 Eliminate Ebenezer Scrooge",
   subtitleText: "Broke the rule",
-  confirmText: "Tap again to confirm — this eliminates him",
+  // Shown in a Yes/No popup (themedConfirm on the host; a matching inline
+  // Yes/No on Sam's phone, which has no themedConfirm of its own) — replaces
+  // the old "tap the button again to confirm" relabel, which read as a
+  // misclick waiting to happen rather than a real confirmation (TODO item 6).
+  confirmText: "Eliminate Ebenezer Scrooge? This can't be undone.",
 };
 // Reuses GAC_ROSTER's existing Scrooge `desc` ("May only mumble or say
 // \"BAH HUMBUG\" all game...") rather than writing a second copy of the
@@ -5977,7 +5981,7 @@ function gacUpdateScroogeButton(){
   // already uses — a present-but-inert button would just confuse whoever's
   // running the game, so it disappears rather than graying out.
   if (!scrooge){
-    box.style.display = "none"; box.innerHTML = ""; delete box.dataset.confirm;
+    box.style.display = "none"; box.innerHTML = "";
     return;
   }
   box.style.display = "block";
@@ -5986,13 +5990,10 @@ function gacUpdateScroogeButton(){
       <button type="button" id="gacTrackScroogeInfo" title="What's the rule?" style="margin-left:6px">❓</button>
     </div>`;
   const elimBtn = document.getElementById("gacTrackScroogeElim");
-  elimBtn.onclick = () => {
-    if (box.dataset.confirm === "1"){
-      gacApplyBrokenRule(scrooge.name);
-    } else {
-      box.dataset.confirm = "1";
-      elimBtn.textContent = GAC_SCROOGE_SPEC.confirmText;
-    }
+  // Yes/No popup, not the old "tap again to confirm" relabel (TODO item 6).
+  elimBtn.onclick = async () => {
+    const ok = await themedConfirm(GAC_SCROOGE_SPEC.confirmText, "Eliminate", "Cancel");
+    if (ok) gacApplyBrokenRule(scrooge.name);
   };
   const infoBtn = document.getElementById("gacTrackScroogeInfo");
   infoBtn.onclick = () => { alert(gacScroogeRuleText()); };
@@ -7039,7 +7040,10 @@ document.getElementById("gacStartVote").onclick = () => {
     voteAudioEl: narr,
     durationMs: ms,
     mode: "gac",
-    candidates: gacGame.players.filter(p => p.alive).map(p => p.name),
+    // Sam is the moderator, never a vote candidate — the Sam-driven
+    // "startVote" handler (onGacSamDay) already excludes her this way; this
+    // was the host's own copy that didn't (TODO item 7, now fixed).
+    candidates: gacGame.players.filter(p => p.alive && p.roleId !== "Sam").map(p => p.name),
     onFinished: (result) => {
       gacApplyVoteResult(result);
     },

@@ -1833,16 +1833,28 @@ export function startPlayerClient(code) {
       document.body.appendChild(mpScroogeFloatEl);
     }
     mpScroogeFloatEl.innerHTML = "";
-    delete mpScroogeFloatEl.dataset.confirm;
     const btn = el("button", { className:"mpBtn gac full", textContent: sc.label });
+    // Yes/No popup, not the old "tap again to confirm" relabel (TODO item 6)
+    // — matches the host tracker's themedConfirm for the same action; the
+    // phone has no themedConfirm of its own, so this is the inline
+    // equivalent (same two explicit choices, just not a modal).
     btn.onclick = () => {
-      if (mpScroogeFloatEl.dataset.confirm === "1"){
+      btn.style.display = "none";
+      const confirmRow = el("div", { style:"margin-top:8px;text-align:center" });
+      confirmRow.append(el("div", { className:"mpNarratorOnly", style:"margin-bottom:6px", textContent: sc.confirmText }));
+      const yesBtn = el("button", { className:"mpBtn gac full", style:"background:#7a1f1f", textContent:"Yes, eliminate" });
+      const noBtn = el("button", { className:"mpBtn gac full", style:"margin-top:6px", textContent:"No, cancel" });
+      yesBtn.onclick = () => {
         try { if (room) room.send("gac_self_elim", { from: sc.playerName }); } catch(_){}
-        btn.disabled = true; btn.textContent = "Sent ✓";
-      } else {
-        mpScroogeFloatEl.dataset.confirm = "1";
-        btn.textContent = sc.confirmText;
-      }
+        yesBtn.disabled = true; noBtn.disabled = true;
+        yesBtn.textContent = "Sent ✓";
+      };
+      noBtn.onclick = () => {
+        confirmRow.remove();
+        btn.style.display = "block";
+      };
+      confirmRow.append(yesBtn, noBtn);
+      mpScroogeFloatEl.append(confirmRow);
     };
     mpScroogeFloatEl.append(btn);
     const infoRow = el("div", { style:"opacity:.85;margin-top:4px;text-align:center" });
