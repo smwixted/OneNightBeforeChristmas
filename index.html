@@ -6824,10 +6824,15 @@ function gacUpdateTrackControls(){
   const shareBtn = document.getElementById("gacShareResults");
   const restartBtn = document.getElementById("gacRestartNight");
   // Sam Settings button — available between nights when Sam is in play and the
-  // host is the one controlling settings (a non-host Sam adjusts on their phone).
+  // HOST is the one controlling settings. The comment here always said "a
+  // non-host Sam adjusts on their phone" but the code never actually checked
+  // that — gacSamCtrl ("host" | "sam", who sets Sam Settings up) is the right
+  // signal: when it's "sam", this button's own onclick (below) reopens the
+  // HOST'S OWN local Sam Settings screen with no route back to Sam's phone at
+  // all, which would silently let the host change settings Sam never sees.
   const ssBtn = document.getElementById("gacSamSettingsBtn");
   if (ssBtn){
-    ssBtn.style.display = gacSelected.has("Sam") ? "inline-block" : "none";
+    ssBtn.style.display = (gacSelected.has("Sam") && gacSamCtrl !== "sam") ? "inline-block" : "none";
   }
   // "coinpending"/"frostpending" mean a decisive result exists but isn't final
   // yet (waiting on the coin flip, or on Jack Frost's revenge) — don't treat
