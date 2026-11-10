@@ -3,6 +3,17 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- index.html itself has no ?v= cache-bust (unlike its JS imports) — these
+     are a best-effort ask that the BROWSER re-check rather than serve a
+     cached copy of THIS file. Real browsers vary in how much they honor a
+     meta-tag cache directive (some only respect real HTTP headers, which
+     GitHub Pages' static hosting doesn't let us set) — this does not
+     replace a hard refresh, it just improves the odds a normal page load
+     catches a stale copy on its own. See the build stamp below for how to
+     actually VERIFY freshness instead of hoping. -->
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>One Night Before Christmas</title>
 <!-- Home-screen / install support -->
 <link rel="manifest" href="manifest.json">
@@ -816,6 +827,20 @@
 </head>
 <body>
 <div class="snow" id="snow"></div>
+<!-- Build stamp: index.html can't cache-bust itself the way its JS imports
+     do, so this is how to actually VERIFY you're not on a stale copy,
+     instead of hoping the meta no-cache tags above caught it (they're a
+     best-effort ask browsers are free to ignore). document.lastModified
+     reflects whatever Last-Modified/date header THIS loaded copy actually
+     came with — zero upkeep, nothing to remember to bump. Tiny, out of the
+     way, present before either game's own UI takes over. -->
+<div id="buildStamp" style="position:fixed;top:2px;left:4px;z-index:9999;font-size:10px;opacity:.4;color:#fff;font-family:Arial,sans-serif;pointer-events:none;user-select:none"></div>
+<script>
+  try {
+    var bs = document.getElementById("buildStamp");
+    if (bs) bs.textContent = "Build: " + new Date(document.lastModified).toLocaleString();
+  } catch(_){}
+</script>
 
 <button id="menuBtn" aria-label="Menu">
   <span></span><span></span><span></span>
