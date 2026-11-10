@@ -849,6 +849,47 @@ export function startPlayerClient(code) {
   // kind: "single" (pick one option), "yesno", "twopick" (two distinct options),
   //       "info" (no input; e.g. Santa's confirm-then-reveal).
   let gacPromptState = null;
+  // ---- The "active prompt is un-clobberable" invariant ----
+  // gacPromptState is truthy for exactly the window a gac_prompt is showing,
+  // unanswered (set by renderGacPrompt, cleared the instant the player taps
+  // Confirm — see addConfirm below). While it's set, nothing else may
+  // silently replace what's on screen: that's the Jack Frost race (a
+  // separate day-summary broadcast landing on top of the prompt Sam was
+  // just sent) and the September bug (Sam's screen stuck showing a stale
+  // render because nothing else ever correctly replaced it) — same root
+  // cause, "a generic update can clobber an active prompt with no
+  // coordination," on ANY client holding a prompt, not just Sam's.
+  //
+  // A message that carries data worth showing LATER (a day summary, Sam's
+  // day controls, a narration beat) calls gacGuardedRerender(fn) instead of
+  // rendering directly: if a prompt is active, fn is remembered as
+  // gacPendingRerender and skipped; addConfirm's submit handler replays it
+  // the moment the prompt clears, so answering never leaves anyone looking
+  // at stale data (requirement: re-render from fresh data when answered).
+  // Messages that carry nothing worth replaying (a generic "wait" filler)
+  // just check gacPromptActive() and bail — consistent with the pre-existing
+  // onResultScreen guard in gacWait, which is the same invariant one level
+  // down (an unread private result is ALSO un-clobberable).
+  //
+  // Escape hatches — a stale prompt must not freeze the device forever, so
+  // these ALWAYS win and explicitly drop the lock first: game_switch,
+  // session_ended, gac_sleep (a (re)started night — gacStartNight always
+  // broadcasts this), and gac_clear (the host's explicit "forget whatever
+  // you were doing" signal — now sent by gacExitNarrator when backing out
+  // of a night, covering "decision resolved elsewhere"/"host backed out").
+  let gacPendingRerender = null;
+  function gacPromptActive(){ return !!gacPromptState; }
+  // Call instead of rendering directly for anything carrying data worth
+  // showing later. Safe to call with the SAME fn repeatedly (e.g. on every
+  // gac_summary) — only the most recent one is kept.
+  function gacGuardedRerender(fn){
+    if (gacPromptActive()){ gacPendingRerender = fn; return; }
+    fn();
+  }
+  // Drop the lock and discard any pending re-render — for the escape hatches
+  // above, where whatever was pending is now moot (a different screen is
+  // about to take over anyway).
+  function gacClearPromptLock(){ gacPromptState = null; gacPendingRerender = null; }
   function gacSend(value, explicitKey){
     const key = explicitKey || (gacPromptState ? gacPromptState.key : null);
     if (room) room.send("gac_choice", {
@@ -958,12 +999,27 @@ export function startPlayerClient(code) {
       // the host would ignore the answer — leaving the night to time out.
       fn();
       gacPromptState = null;
+      // Something arrived WHILE this prompt was up and got deferred instead
+      // of rendering over it (gacGuardedRerender) — replay it now, with
+      // whatever's freshest by the time it fires (the functions it defers
+      // always re-read current state, never a stale snapshot). Requirement:
+      // answering must never leave this screen showing pre-answer data.
+      if (gacPendingRerender){ const fn2 = gacPendingRerender; gacPendingRerender = null; fn2(); }
     };
     wrap.append(c);
   }
   let onResultScreen = false;   // true while showing an unread private result (e.g. Santa's check)
   function gacWait(msg){
-    if (onResultScreen) return;   // don't clobber an unread result with a filler "waiting" screen
+    // NOT guarded on gacPromptActive() — deliberately. gac_wait is how
+    // gacRenderLine() clears a STALE decision prompt when the host moves
+    // past it without an answer (advancing to a plain line, or stepping
+    // Back) — that's "decision resolved elsewhere"/"host backed out", one
+    // of the escape hatches, not something to protect against. Properly
+    // DISPATCHED decisions already exclude their own recipient from this
+    // broadcast (gacBroadcastWaitExcept(msg, owner)), so a wait never races
+    // the matching prompt for the same person — unlike gac_summary, which
+    // doesn't exclude anyone, hence Jack Frost's actual bug.
+    if (onResultScreen) return;   // don't clobber an unread private result with filler
     onWaitingScreen = false;
     wrap.innerHTML = "";
     wrap.append(el("div", { className: "mpH", textContent: `Hi ${myName}!` }));
@@ -1243,7 +1299,10 @@ export function startPlayerClient(code) {
       lastGameLog = logSrc;
       mpShowGameLogBtn(logSrc);
     }
-    renderSamDay();
+    // renderSamDay rebuilds wrap — guarded so it can't clobber an active
+    // prompt (e.g. Frost's revenge); mpUpdateScroogeFloat is the persistent
+    // floating panel outside wrap, always safe to refresh immediately.
+    gacGuardedRerender(renderSamDay);
     mpUpdateScroogeFloat();
   }
   function renderSamDay(){
@@ -1412,6 +1471,13 @@ export function startPlayerClient(code) {
     paint(); iv = setInterval(paint, 250);
   }
   function showSamNarration(p){
+    // Whole-function defer (not just the render) — gacResetSamState() below
+    // has its own side effects (clears samDayControls, hides the Scrooge
+    // float) that shouldn't apply either while a prompt is active. In
+    // practice the host already avoids sending this while Sam is actively
+    // deciding (gacStreamNarrationToSam's own check); this is the client-side
+    // half of the same invariant, for whenever that assumption doesn't hold.
+    if (gacPromptActive()){ gacPendingRerender = () => showSamNarration(p); return; }
     hideNudge();
     gacResetSamState();
     samRunningBeat = true;   // ...then immediately re-enter: Sam IS on a beat — ignore table 'wait' broadcasts
@@ -1608,6 +1674,12 @@ export function startPlayerClient(code) {
   }
 
   function gacDaySummary(s){
+    // Whole-function defer, same reasoning as showSamNarration — this is the
+    // exact message that was racing Jack Frost's revenge prompt (a
+    // gac_summary status broadcast landing on top of the gac_prompt just
+    // sent to the same device). Re-entrant-safe: by the time this replays,
+    // gacPromptState is null, so it falls straight through below.
+    if (gacPromptActive()){ gacPendingRerender = () => gacDaySummary(s); return; }
     // A non-host Sam running the game gets the SAME day layout as players
     // (results + in/out via the shared renderers), plus their day controls.
     // Sam narrated the night, so they always see results immediately (ungated).
@@ -2471,6 +2543,10 @@ export function startPlayerClient(code) {
         },
         onMessage: (type, payload) => {
           if (type === "game_switch") {
+            // Escape hatch: a different game starting ALWAYS wins over
+            // whatever prompt (if any) was active — otherwise a stale GAC
+            // decision prompt would survive into the next ONBC/GAC game.
+            gacClearPromptLock();
             // Host moved between ONBC and GAC — follow them. Clear any Sam
             // state a finished GAC game left behind FIRST: without this, a
             // leftover samDayControls kept _amSamNarrator true forever, so
@@ -2495,7 +2571,11 @@ export function startPlayerClient(code) {
           }
           // Sam runs the vote from their day screen — they're not a voter, so
           // ignore the vote ballot/countdown broadcasts and stay on the day screen.
-          const _amSamNarrator = !!samDayControls;
+          // ALSO ignore them (general invariant, not Sam-specific) while this
+          // client has an active prompt — shouldn't normally overlap with a
+          // vote, but if it ever did, the vote broadcasts will keep coming as
+          // it progresses, so there's nothing here worth deferring/replaying.
+          const _amSamNarrator = !!samDayControls || gacPromptActive();
           if (type === "vote_open") { if (_amSamNarrator) return; lastVoteMsg = payload; renderVote(payload, false); }
           if (type === "vote_countdown") { if (_amSamNarrator) return; lastVoteMsg = { ...(lastVoteMsg||{}), ...payload }; renderVote(lastVoteMsg, true); }
           if (type === "vote_paused") { if (_amSamNarrator) return; if (lastVoteMsg) renderVote({ ...lastVoteMsg, paused: true }, false); }
@@ -2504,7 +2584,7 @@ export function startPlayerClient(code) {
           if (type === "vote_locked") { if (_amSamNarrator) return; waiting("Counting votes…"); }
           if (type === "vote_aborted") { if (_amSamNarrator) return; waiting("The host cancelled the vote. Waiting for the next game…"); }
           if (type === "vote_results") { if (_amSamNarrator) return; renderResults(payload); }
-          if (type === "session_ended") sessionEnded();
+          if (type === "session_ended") { gacClearPromptLock(); sessionEnded(); }
           // ----- GAC (Grinches Attack Christmas) per-phone decisions -----
           if (type === "gac_prompt"){
             hideNudge();
@@ -2521,7 +2601,11 @@ export function startPlayerClient(code) {
           if (type === "gac_info"){
             if (!payload._to || payload._to === myName) { hideNudge(); gacInfo(payload); }
           }
-          if (type === "gac_clear")  { hideNudge(); try { mpCloseLogOverlay(); } catch(_){} waiting(); }
+          // Escape hatch: the host's explicit "forget whatever you were
+          // doing" signal — drops a stale prompt lock before falling back to
+          // waiting(). Covers "decision resolved elsewhere" and "host backed
+          // out" (gacExitNarrator sends this on exit).
+          if (type === "gac_clear")  { gacClearPromptLock(); hideNudge(); try { mpCloseLogOverlay(); } catch(_){} waiting(); }
           // "Are you still there?" — a light banner over whatever's on screen.
           if (type === "gac_nudge"){
             if (!payload._to || payload._to === myName) showNudge();
@@ -2560,7 +2644,10 @@ export function startPlayerClient(code) {
             else { gacDaySummary(payload); }
           }
           // Night start: everyone sees the shared "go to sleep" screen first.
-          if (type === "gac_sleep"){ hideNudge(); gacSleepScreen(payload); }
+          // Escape hatch: a (re)started night ALWAYS wins — gacStartNight
+          // broadcasts this unconditionally every time, covering "night
+          // restarted" even without a dedicated gac_clear from the host.
+          if (type === "gac_sleep"){ gacClearPromptLock(); hideNudge(); gacSleepScreen(payload); }
           // Cupid love-reveal running count.
           if (type === "gac_love"){
             gacLoveCount = payload;
