@@ -290,17 +290,38 @@ don't just delete them (keeps history of what was fixed and why).
     all three GAC vote-start call sites. ONBC's own vote audio and the
     per-player phone copies are untouched (utility alerts, not narration,
     and ONBC has no narrator-voice concept at all).
-  - **Jack Frost's revenge prompt still doesn't reliably reach Sam (item
-    1) — NOT patched a sixth time, per Scott's own instruction.** The
-    2026-10-03 `forceEveryone` fix stopped the spurious re-gating loop,
-    but introduced (or exposed) a new failure: the status broadcast and
-    the targeted prompt are still two independent sends to the same
-    device, and whichever one a client finishes rendering last wins the
-    screen — this time the status broadcast appears to be winning on
-    Sam's own device specifically. Root cause and a proposed structural
-    fix (not a sixth patch to the gating) written up for Scott; needs his
-    sign-off before any code changes land. See session notes / ask Claude
-    to recap if this file is read without that conversation.
+  - **[shipped 2026-11-09] Jack Frost's revenge prompt race — structural
+    fix, approved by Scott, not a sixth patch to the gating.** Five
+    rounds of patching WHICH of two independent sends (a status broadcast,
+    a targeted gac_prompt) a client renders last. This round stops relying
+    on order: `gacPromptState` (truthy exactly while a gac_prompt is
+    showing, unanswered) is now a general "an active prompt is
+    un-clobberable" invariant, not Frost-specific and not Sam-specific.
+    `gacGuardedRerender(fn)` — used by `gacDaySummary`, `showSamDay`,
+    `showSamNarration` — defers `fn` to `gacPendingRerender` instead of
+    rendering over an active prompt; `addConfirm`'s submit handler replays
+    it the instant the prompt clears, so answering never leaves anyone on
+    stale data. Escape hatches (`game_switch`, `session_ended`,
+    `gac_sleep`, `gac_clear`) always drop the lock first, so a STALE
+    prompt (night restarted, game switched, host backed out) can't freeze
+    a device forever — `gacExitNarrator` now sends `gac_clear` on exit for
+    exactly this. `gac_wait` deliberately stays unguarded: it's
+    `gacRenderLine`'s own existing mechanism for clearing a stale prompt
+    when the host moves past an unanswered decision, i.e. it's already
+    one of the escape hatches. While auditing, found and fixed TWO more
+    sender-side instances of the SAME race pattern that had just never
+    been reported (`gacDispatchToPhone`'s owner branch — regular
+    player-choices decisions; the Grinch-kill wheel's redundant wait
+    broadcast). Also folds in the September "Scrooge button on a stale
+    Sam screen" report — same root cause, now closed generally. Full
+    writeup with the message-by-message reasoning is in this session's
+    transcript if more detail is ever needed.
+  - **[shipped 2026-11-09]** `index.html` cache staleness (the actual
+    cause of this round's stale-cache false alarms on Buddy/card-check):
+    added no-cache meta tags (best-effort — browsers aren't required to
+    honor them) and a zero-upkeep "Build: `document.lastModified`" stamp,
+    top-left, present before either game's own UI loads, so staleness can
+    be VERIFIED before re-reporting something as a regression.
 
 ## Open items
 
