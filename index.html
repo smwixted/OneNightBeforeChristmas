@@ -3310,12 +3310,18 @@ function gacExitNarrator(){
   gacNarrator.style.display = "none";
   // Return to the current game's day tracker (ready to start this night again),
   // rather than dropping back to the character-select screen.
+  // gacBroadcastClear FIRST: this is "host backed out" — any phone that still
+  // has an unanswered decision prompt (e.g. Frost's revenge, sent to Sam)
+  // just had the whole night it belonged to wiped out from under it. Without
+  // an explicit clear, that client's active-prompt lock (gacPromptState)
+  // would never drop, and the gac_wait right after would be silently
+  // ignored — a permanent freeze instead of "waiting for the host".
   if (gacGame && gacGame.players && gacGame.players.length){
     gacNightInterrupted = true;   // offer "Start This Night" on the tracker
-    if (gacSessionActive()){ try { gacBroadcastWait("Waiting for the host…"); } catch(_){} }
+    if (gacSessionActive()){ try { gacBroadcastClear(); gacBroadcastWait("Waiting for the host…"); } catch(_){} }
     gacOpenTracker();   // shows the in/out roster + "Start This Night" control (streams day to Sam)
   } else {
-    if (gacSessionActive()){ try { gacBroadcastWait("Waiting for the host…"); } catch(_){} }
+    if (gacSessionActive()){ try { gacBroadcastClear(); gacBroadcastWait("Waiting for the host…"); } catch(_){} }
   }
 }
 
@@ -5002,7 +5008,11 @@ function gacDispatchToPhone(key){
   // to all connected Grinches.
   if (key === "grinchKill"){
     gacAwaitingPhone = "grinchKill";
-    gacBroadcastWait("Night in progress…");
+    // No separate gacBroadcastWait here — gacStartGrinchWheel's own "gac_wheel"
+    // broadcast already tells every client whether THEY personally get the
+    // wheel or a wait screen (payload.players), so a second, unfiltered wait
+    // message sent first would just be racing its own follow-up for every
+    // participating Grinch — the same pattern behind Jack Frost's bug.
     return gacStartGrinchWheel();
   }
   const owner = gacDecisionOwnerName(key);
@@ -5018,7 +5028,12 @@ function gacDispatchToPhone(key){
   }
   const prompt = gacBuildPhonePrompt(key);
   gacAwaitingPhone = key;
-  gacBroadcastWait("Night in progress…");
+  // _except owner, not a plain broadcast — the same two-message-one-
+  // recipient race as Jack Frost's (a status message and the owner's own
+  // targeted prompt, sent back to back, with no guarantee which one a
+  // client finishes rendering last). The toSam branch above already gets
+  // this right; this branch didn't.
+  gacBroadcastWaitExcept("Night in progress…", owner);
   gacSendPrompt(owner, prompt);
   return true;
 }
@@ -5029,9 +5044,15 @@ function gacDispatchSpentToPhone(key){
   if (!gacSessionActive() || !settings.gacPlayerChoices) return false;
   const owner = gacDecisionOwnerName(key);
   if (!owner) return false;
-  gacBroadcastWait("Night in progress…");
   const hostSelfName = settings.mpHostName || null;
-  if (hostSelfName && owner === hostSelfName) return true;  // host sees the note on their own screen
+  if (hostSelfName && owner === hostSelfName){
+    gacBroadcastWait("Night in progress…");
+    return true;  // host sees the note on their own screen
+  }
+  // _except owner — same reasoning as gacDispatchToPhone: a wait broadcast
+  // and the owner's own targeted gac_info, sent back to back, shouldn't
+  // race for who the owner's screen ends up showing.
+  gacBroadcastWaitExcept("Night in progress…", owner);
   try {
     gacSendInfo(owner, { title:"Your Power", html:"You've already used your one-time power.<br>Nothing to do tonight." });
   } catch(_){}
