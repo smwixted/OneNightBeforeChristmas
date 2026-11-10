@@ -3015,13 +3015,17 @@ function gacRegisterAckHandler(){
         try { broadcastRoles(gacCheatData(), settings.mpHostPlayer); } catch(_){}
         const ms = (settings.voteTimer == null) ? 180000 : settings.voteTimer;
         const narr = document.getElementById("narration");
-        if (narr) narr.src = "Audio/Gameplay/999_Vote.mp3";
+        // The 3-2-1 lock-in clip is spoken narration too — only queue it (and
+        // only hand it to the vote session at all) when Game Narrates is on.
+        // createVoteSession's own 9s hard-cap fallback ends the countdown
+        // correctly either way, audio or not.
+        if (narr && settings.gacReadAloud) narr.src = "Audio/Gameplay/999_Vote.mp3";
         if (gacTracker) gacTracker.style.display = "none";
         startHostVoting({
           settings,
           votingEnabled: !!settings.mpEnabled,
           getCheatData: gacCheatData,
-          voteAudioEl: narr,
+          voteAudioEl: settings.gacReadAloud ? narr : null,
           durationMs: ms,
           mode: "gac",
           candidates: gacGame.players.filter(p => p.alive && p.roleId !== "Sam").map(p => p.name),
@@ -7035,14 +7039,17 @@ document.getElementById("gacStartVote").onclick = () => {
   try { broadcastRoles(gacCheatData(), settings.mpHostPlayer); } catch(_){}
   const ms = (settings.voteTimer == null) ? 180000 : settings.voteTimer;   // 0 = no timer
   const narr = document.getElementById("narration");
-  if (narr) narr.src = "Audio/Gameplay/999_Vote.mp3";
+  // Spoken narration — only when Game Narrates is on (see gacPlayCallout for
+  // the matching fix on the 1-minute/30-second reminders). createVoteSession's
+  // own 9s hard-cap fallback ends the countdown correctly either way.
+  if (narr && settings.gacReadAloud) narr.src = "Audio/Gameplay/999_Vote.mp3";
   // Hide the tracker while the full-screen vote layer is up.
   gacTracker.style.display = "none";
   startHostVoting({
     settings,
     votingEnabled: !!settings.mpEnabled,
     getCheatData: gacCheatData,
-    voteAudioEl: narr,
+    voteAudioEl: settings.gacReadAloud ? narr : null,
     durationMs: ms,
     mode: "gac",
     // Sam is the moderator, never a vote candidate — the Sam-driven
@@ -8817,6 +8824,12 @@ function playCalloutCue(file){
 // GAC vote callouts: just play the cue audio (the vote layer isn't on the ONBC
 // stage, so there's no themed flash to show).
 function gacPlayCallout(file){
+  // The 1-minute/30-seconds vote reminders are spoken narration — respect the
+  // same Player Narrates/Game Narrates setting every other narration clip
+  // does. Player phones still get their own copy via the vote_callout
+  // broadcast (createVoteSession's doCallout) regardless — that's a per-
+  // phone utility alert, not the narrator's own voice, so it's unaffected.
+  if (!settings.gacReadAloud) return;
   try {
     const a = document.getElementById("callout") || document.getElementById("narration");
     if (a){ a.src = "Audio/Gameplay/" + file; a.play().catch(()=>{}); }
