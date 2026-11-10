@@ -263,6 +263,45 @@ don't just delete them (keeps history of what was fixed and why).
     (`Audio/GAC_Narration/gac_badsanta_eliminated.mp3`) — still waiting on
     Scott's verbatim wording.
 
+- **[2026-11-09 playtest, after a multi-week gap]** Four items:
+  - **Buddy naming + the host card-check screen (items 2 and 3's card-check
+    half): almost certainly STALE CACHE, not a real regression.** Both
+    symptoms match the OLD, pre-unification code exactly (host saying
+    "Buddy swapped X and Y", the 0/N-confirmed card-check box) — the
+    current source has neither (`appendResultLines` says "X and Y were
+    swapped", no role name; `gacRenderLoveRevealStatus` already has the
+    Sam-blind branch from the 2026-10-03 round). `index.html` has no
+    self cache-bust, so a tab that wasn't hard-refreshed (or a GitHub
+    Pages deploy that hadn't landed yet) would show exactly this. **Ask
+    Scott to hard-refresh (Cmd+Shift+R) and confirm the commit hash
+    before re-testing those two specifically** — don't re-patch something
+    already fixed.
+  - **[shipped]** Narrator-control audit (item 3's actual finding): the
+    host tracker's "Sam Settings" button only checked whether Sam was
+    selected as a role, never whether the HOST is the one who should be
+    adjusting settings — with a separate Sam running, tapping it silently
+    reopened the host's own local settings screen with no route to Sam's
+    phone. Fixed; audited every other narrator control for the same gap
+    (Scrooge button, self-eliminate, card-check, the host-card boxes, the
+    day tracker's vote/next-night/share buttons) and found no others.
+  - **[shipped]** Vote countdown audio (item 4) ignored Player/Game
+    Narrates. `gacPlayCallout` (1-min/30-sec reminders) and the 3-2-1
+    lock-in clip played unconditionally; now gated on `gacReadAloud` at
+    all three GAC vote-start call sites. ONBC's own vote audio and the
+    per-player phone copies are untouched (utility alerts, not narration,
+    and ONBC has no narrator-voice concept at all).
+  - **Jack Frost's revenge prompt still doesn't reliably reach Sam (item
+    1) — NOT patched a sixth time, per Scott's own instruction.** The
+    2026-10-03 `forceEveryone` fix stopped the spurious re-gating loop,
+    but introduced (or exposed) a new failure: the status broadcast and
+    the targeted prompt are still two independent sends to the same
+    device, and whichever one a client finishes rendering last wins the
+    screen — this time the status broadcast appears to be winning on
+    Sam's own device specifically. Root cause and a proposed structural
+    fix (not a sixth patch to the gating) written up for Scott; needs his
+    sign-off before any code changes land. See session notes / ask Claude
+    to recap if this file is read without that conversation.
+
 ## Open items
 
 0. **[investigated 2026-10-03, unresolved]** Host-as-Sam: Scott reported
