@@ -1020,6 +1020,14 @@ export function startPlayerClient(code) {
     // the matching prompt for the same person — unlike gac_summary, which
     // doesn't exclude anyone, hence Jack Frost's actual bug.
     if (onResultScreen) return;   // don't clobber an unread private result with filler
+    // Explicitly drop the lock (not just overwrite the screen): this IS the
+    // escape hatch for a stale prompt, so it must clear gacPromptState the
+    // same way the others do. Discard, don't flush — we're switching to a
+    // neutral wait screen, not back to whatever was deferred, so there's
+    // nothing left that can ever tap Confirm to flush it otherwise, and a
+    // stuck gacPromptState would silently swallow every render after this
+    // one forever. A no-op when no prompt was active, which is the common case.
+    gacClearPromptLock();
     onWaitingScreen = false;
     wrap.innerHTML = "";
     wrap.append(el("div", { className: "mpH", textContent: `Hi ${myName}!` }));
