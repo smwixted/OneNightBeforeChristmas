@@ -820,6 +820,12 @@
   .mpRow input{margin-top:3px;flex:0 0 auto;width:18px;height:18px}
   .mpRow span{flex:1}
   .menuGap{height:22px;border-top:1px solid rgba(255,255,255,.18);margin-top:14px}
+  /* Build stamp: diagnostic only, pinned to the bottom of the flex-column menu
+     panel via margin-top:auto (pushes itself + nothing after it to the bottom
+     regardless of how much content is above it) rather than position:absolute,
+     so it never overlaps menu items on a short screen. */
+  .menuBuildStamp{margin-top:auto;font-size:10px;opacity:.4;color:#fff;
+    font-family:Arial,sans-serif;letter-spacing:.5px;pointer-events:none;user-select:none}
   .hostCode{font-family:"NitemareFont","Trebuchet MS",Arial,sans-serif;font-size:44px;font-weight:normal;letter-spacing:6px;color:#f3c969;text-align:center;margin:4px 0}
   .hostCodeLabel{text-align:center;font-size:13px;color:var(--frost);margin-top:8px}
   .hostCodeCount{text-align:center;font-size:13px;color:#9fd;margin-bottom:4px}
@@ -827,19 +833,28 @@
 </head>
 <body>
 <div class="snow" id="snow"></div>
-<!-- Build stamp: index.html can't cache-bust itself the way its JS imports
-     do, so this is how to actually VERIFY you're not on a stale copy,
-     instead of hoping the meta no-cache tags above caught it (they're a
-     best-effort ask browsers are free to ignore). document.lastModified
-     reflects whatever Last-Modified/date header THIS loaded copy actually
-     came with — zero upkeep, nothing to remember to bump. Tiny, out of the
-     way, present before either game's own UI takes over. -->
-<div id="buildStamp" style="position:fixed;top:2px;left:4px;z-index:9999;font-size:10px;opacity:.4;color:#fff;font-family:Arial,sans-serif;pointer-events:none;user-select:none"></div>
+<!-- Build stamp (see .menuBuildStamp CSS + the #buildStamp/#gacBuildStamp divs
+     inside each menu <nav> below): index.html can't cache-bust itself the way
+     its JS imports do, so this is how to actually VERIFY you're not on a
+     stale copy, instead of hoping the meta no-cache tags above caught it
+     (they're a best-effort ask browsers are free to ignore — GitHub Pages'
+     own real Cache-Control header wins over those anyway). The timestamp IS
+     the version, so there's nothing hand-maintained to bump or let go stale.
+     Lives in the menu, not the title screen, since it's a diagnostic, not
+     chrome — one tap away via the always-visible hamburger button.
+     Runs on DOMContentLoaded, not inline here, because the .menuBuildStamp
+     divs it targets live inside the menu <nav> markup much further down
+     the page — querying for them this early would find nothing yet. -->
 <script>
-  try {
-    var bs = document.getElementById("buildStamp");
-    if (bs) bs.textContent = "Build: " + new Date(document.lastModified).toLocaleString();
-  } catch(_){}
+  document.addEventListener("DOMContentLoaded", function(){
+    try {
+      function pad2(n){ return String(n).padStart(2, "0"); }
+      var d = new Date(document.lastModified);
+      var stamp = "v" + d.getFullYear() + "-" + pad2(d.getMonth()+1) + "-" + pad2(d.getDate())
+        + "_" + pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+      document.querySelectorAll(".menuBuildStamp").forEach(function(el){ el.textContent = stamp; });
+    } catch(_){}
+  });
 </script>
 
 <button id="menuBtn" aria-label="Menu">
@@ -870,6 +885,7 @@
     <img src="GAC_Title.png" alt="The Grinches Attack Christmas"
          onerror="this.style.display='none';this.parentElement.textContent='🟢 The Grinches Attack Christmas'">
   </button>
+  <div class="menuBuildStamp" id="buildStamp"></div>
 </nav>
 
 <header>
@@ -947,6 +963,7 @@
       <img src="Title.png" alt="One Night Before Christmas"
            onerror="this.style.display='none';this.parentElement.textContent='🔴 One Night Before Christmas'">
     </button>
+    <div class="menuBuildStamp" id="gacBuildStamp"></div>
   </nav>
 
   <!-- GAC settings dialog -->
